@@ -92,3 +92,15 @@ def test_missing_source_falls_back_to_bundled_data(runtime):
     assert any("FALLBACK" in e.value for e in at.error)
     assert "LAST-SEASON" in at.caption[0].value
     assert metrics(at)["Pick"] == "#1"
+
+
+def test_team_fit_unlocks_after_three_of_my_picks(runtime):
+    at = start(runtime, source="synthetic")
+    order = lambda: next(s for s in at.selectbox if s.label == "Order")  # noqa: E731
+    draft_via_search(at, 24)  # slot 1 picks at #1 and #24
+    assert "Team fit" not in order().options
+    draft_via_search(at, 1)   # pick #25 is my third
+    assert "Team fit" in order().options
+    order().set_value("Team fit").run()
+    assert not at.exception
+    assert any("Team-fit weights" in c.value for c in at.caption)

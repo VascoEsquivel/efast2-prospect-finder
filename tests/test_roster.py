@@ -1,6 +1,7 @@
 import time
 
 import numpy as np
+import pandas as pd
 import pytest
 
 import roster as r
@@ -143,3 +144,33 @@ def test_team_with_no_picks_ranks_last():
     assert (table.loc[2, [f"{c}_rank" for c in info["categories"]]] == 2).all()
     summary = r.my_category_summary(table, 1, info["categories"], punts=["FT%"])
     assert len(summary) == 9 and "FT% (punt)" in summary["cat"].tolist()
+
+
+# ── Phase 2: team fit ─────────────────────────────────────────────────────────
+
+def fit_table(rows):
+    """rows: {team: {cat: (z, rank)}} -> a team_category_table-shaped frame."""
+    data = {}
+    for t, cats in rows.items():
+        data[t] = {"players": 3, **{f"{c}_z": z for c, (z, _) in cats.items()},
+                   **{f"{c}_rank": r for c, (_, r) in cats.items()}}
+    return pd.DataFrame.from_dict(data, orient="index")
+
+
+def test_team_fit_weights():
+    # 8 teams. Team 1: dominant in BLK (locked), barely first in STL (not locked), mid in PTS, last in AST,
+    # punting FT%.
+    rows = {t: {"BLK": (0.0, t), "STL": (0.0, t), "PTS": (0.0, t), "AST": (0.0, t), "FT%": (0.0, t)} for t in range(1, 9)}
+    rows[1] = {"BLK": (5.0, 1), "STL": (1.2, 1), "PTS": (0.1, 4), "AST": (-3.0, 8), "FT%": (-4.0, 8)}
+    rows[2]["STL"] = (1.0, 2)
+    rows[4]["PTS"] = (0.2, 3)
+    w = r.team_fit_weights(fit_table(rows), 1, ["BLK", "STL", "PTS", "AST", "FT%"], punts=["FT%"])
+    assert w == {"BLK": 0.0, "STL": 1.0, "PTS": 1.5, "AST": 1.0, "FT%": 0.0}
+
+
+def test_team_fit_neutral_before_any_picks_and_scores():
+    table = fit_table({1: {"PTS": (0, 1)}, 2: {"PTS": (0, 2)}})
+    table.loc[1, "players"] = 0
+    assert r.team_fit_weights(table, 1, ["PTS", "REB"], punts=["REB"]) == {"PTS": 1.0, "REB": 0.0}
+    valued = pd.DataFrame({"Z_PTS": [1.0, -1.0], "Z_REB": [2.0, 0.0]})
+    assert r.team_fit_scores(valued, {"PTS": 1.5, "REB": 0.0}).tolist() == [1.5, -1.5]
