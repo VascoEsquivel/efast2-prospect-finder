@@ -261,6 +261,23 @@ def archive_state(path: Path) -> Path | None:
     return dest
 
 
+def to_backup(state: DraftState, settings: dict | None = None) -> bytes:
+    """A downloadable snapshot of the draft (and optionally the app settings)."""
+    return json.dumps({"kind": "draft-assistant-backup", "draft": to_dict(state), "settings": settings or {}},
+                      indent=1).encode()
+
+
+def from_backup(data: bytes | str) -> tuple[DraftState, dict]:
+    """Parse a file made by to_backup (or a bare draft_state.json). Raises DraftError if it isn't one."""
+    try:
+        payload = json.loads(data)
+        if isinstance(payload, dict) and payload.get("kind") == "draft-assistant-backup":
+            return from_dict(payload["draft"]), dict(payload.get("settings") or {})
+        return from_dict(payload), {}
+    except (ValueError, KeyError, TypeError) as exc:
+        raise DraftError(f"not a draft backup file ({exc})") from exc
+
+
 # ── Sleeper live sync ─────────────────────────────────────────────────────────
 
 def sleeper_pick_player(sp: dict) -> dict:

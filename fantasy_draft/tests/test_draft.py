@@ -220,3 +220,25 @@ def test_sleeper_overrides_conflicting_manual_pick():
     assert s.filled()[1].player_id == "p1"
     assert 2 not in s.filled()
     assert len(msgs) == 2
+
+
+# ── Backup / restore (for hosts that wipe files on restart) ────────────────────
+
+def test_backup_roundtrip_with_settings():
+    s = d.new_state(d.DraftSettings(n_teams=10, n_rounds=12, my_slot=3))
+    for i in range(1, 8):
+        d.make_pick(s, player(i))
+    restored, settings = d.from_backup(d.to_backup(s, {"template": "points"}))
+    assert [(p.pick_no, p.player_id, p.team) for p in restored.picks] == [(p.pick_no, p.player_id, p.team) for p in s.picks]
+    assert restored.settings == s.settings and settings == {"template": "points"}
+
+
+def test_restore_accepts_bare_state_file_and_rejects_junk():
+    s = d.new_state()
+    d.make_pick(s, player(1))
+    restored, settings = d.from_backup(json.dumps(d.to_dict(s)))
+    assert restored.picks[0].player_id == "p1" and settings == {}
+    with pytest.raises(d.DraftError, match="not a draft backup"):
+        d.from_backup(b"{ nope")
+    with pytest.raises(d.DraftError):
+        d.from_backup(b'{"hello": 1}')
