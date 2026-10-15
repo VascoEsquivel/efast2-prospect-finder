@@ -1,0 +1,6 @@
+# Runtime data: raw API responses, normalized cache snapshots, and your draft/settings.
+data/raw/
+data/cache/
+data/draft_state*.json
+data/settings.json
+.pytest_cache/

@@ -1,0 +1,9 @@
+{
+  "_comment": "Alias -> canonical name. Applied to every source before matching, so direction only needs to be consistent. Names are compared after normalization (accents, punctuation, Jr./II/III stripped). Edit here or from the Data tab.",
+  "nicolas claxton": "nic claxton",
+  "cam johnson": "cameron johnson",
+  "herb jones": "herbert jones",
+  "carlton carrington": "bub carrington",
+  "alexandre sarr": "alex sarr",
+  "ron holland": "ronald holland"
+}
