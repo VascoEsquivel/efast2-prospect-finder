@@ -12,3 +12,7 @@ streamlit run funding_lookup.py
 Then open `http://localhost:8501` in your browser.
 
 If the EFAST2 search API is unreachable from your network, the app falls back to a CSV uploader — download a Form 5500 dataset from the [DOL site](https://www.dol.gov/agencies/ebsa/employers-and-advisers/plan-administration-and-compliance/reporting-and-filing/form-5500/5500-datasets) and upload it for local filtering.
+
+## Also in this repo
+
+`fantasy_draft/` holds a separate Streamlit app: a fantasy basketball draft assistant for the 2026-27 NBA season. See [fantasy_draft/README.md](fantasy_draft/README.md).

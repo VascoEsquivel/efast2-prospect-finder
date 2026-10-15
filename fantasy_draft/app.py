@@ -245,15 +245,15 @@ def valuation_settings(s: dict, st_: draft.DraftSettings) -> val.ValuationSettin
         steal_pct=float(s["steal_pct"]))
 
 
-def pick_adp_column(s: dict, df: pd.DataFrame) -> tuple[str | None, str]:
+def pick_adp_column(s: dict, df: pd.DataFrame) -> str | None:
     if s["adp_compare"] == "none":
-        return None, "none"
+        return None
     if s["adp_compare"] in ADP_COLUMNS.values():
-        return s["adp_compare"], s["adp_compare"]
+        return s["adp_compare"]
     for col in ["adp_espn", "adp_sleeper", "adp_market"]:
         if col in df and df[col].notna().any():
-            return col, col
-    return None, "none"
+            return col
+    return None
 
 
 # ── Picks ─────────────────────────────────────────────────────────────────────
@@ -457,6 +457,18 @@ with st.sidebar:
     st.header("Sleeper live sync")
     S["sleeper_draft_id"] = st.text_input("Sleeper draft_id", S["sleeper_draft_id"]).strip()
     S["sleeper_sync"] = st.toggle("Poll picks every 5 s", S["sleeper_sync"], disabled=not S["sleeper_draft_id"])
+    if S["sleeper_draft_id"] and st.button("Load teams/rounds from Sleeper", disabled=has_picks):
+        try:
+            d = dfm.fetch_sleeper_draft(S["sleeper_draft_id"])
+            cfg_ = d.get("settings") or {}
+            state.settings.n_teams = int(cfg_.get("teams") or state.settings.n_teams)
+            state.settings.n_rounds = int(cfg_.get("rounds") or state.settings.n_rounds)
+            persist()
+            flash("success", f"Sleeper draft: {state.settings.n_teams} teams x {state.settings.n_rounds} rounds, "
+                             f"type {d.get('type')}, status {d.get('status')}. Set your draft slot above.")
+        except Exception as exc:  # noqa: BLE001
+            flash("error", f"Could not load the Sleeper draft: {exc}")
+        st.rerun()
 
 save_settings_if_changed(S)
 
@@ -464,7 +476,7 @@ save_settings_if_changed(S)
 sig = data_signature(S)
 s_json = json.dumps(S, sort_keys=True, default=str)
 base_preview, *_ = assemble(sig, s_json)
-adp_col, adp_name = pick_adp_column(S, base_preview)
+adp_col = pick_adp_column(S, base_preview)
 vs = valuation_settings(S, state.settings)
 players, info, metas, reports, load_errors = valued_players(sig, s_json, json.dumps(asdict(vs)), adp_col)
 
@@ -571,6 +583,10 @@ if unresolved:
 valued = players.set_index("player_id")
 team_ids = {t: [resolved[p.pick_no] for p in state.team_picks(t) if resolved.get(p.pick_no)] for t in range(1, N + 1)}
 cats = info.get("categories", [])
+table_t = roster.team_category_table(valued, team_ids, cats, vs.stat_mode) if cats and not vs.is_points else None
+fit_weights = None
+if table_t is not None and len(team_ids.get(me, [])) >= 3:
+    fit_weights = roster.team_fit_weights(table_t, me, cats, vs.punts)
 
 tab_room, tab_board, tab_data = st.tabs(["Draft Room", "Draft Board", "Data"])
 
@@ -580,14 +596,19 @@ with tab_room:
     with left:
         f1, f2 = st.columns([3, 2])
         S["pos_filter"] = f1.segmented_control("Position", POS_FILTERS, default=S["pos_filter"], key="w_pos") or "All"
-        orders = ["My rank", "ADP"]
-        S["order"] = f2.selectbox("Order", orders, index=orders.index(S["order"]) if S["order"] in orders else 0)
-        view = available
+        orders = ["My rank", "ADP"] + (["Team fit"] if fit_weights else [])
+        S["order"] = f2.selectbox("Order", orders, index=orders.index(S["order"]) if S["order"] in orders else 0,
+                                  help="Team fit unlocks after your 3rd pick")
+        view = available.copy()
+        if fit_weights:
+            view["fit"] = roster.team_fit_scores(view.set_index("player_id"), fit_weights).to_numpy()
         if S["pos_filter"] != "All":
             want = {"G": {"PG", "SG"}, "F": {"SF", "PF"}}.get(S["pos_filter"], {S["pos_filter"]})
             view = view[view["positions"].map(lambda ps: bool(want & set(ps)))]
         if S["order"] == "ADP":
             view = view.sort_values("adp", na_position="last")
+        elif S["order"] == "Team fit" and fit_weights:
+            view = view.sort_values("fit", ascending=False)
         gone = val.likely_gone(view["adp"], next_mine)
         table = pd.DataFrame({
             "Rk": view["rank"], "Player": view["name"], "Team": view["team"],
@@ -602,6 +623,8 @@ with tab_room:
                 table[c] = view[c]
         else:
             table["Z"] = view["Z_total"]
+            if fit_weights:
+                table["Fit"] = view["fit"]
             for c in cats:
                 table[c + ("·p" if c in vs.punts else "")] = view[f"Z_{c}"]
                 z_cols.append(c + ("·p" if c in vs.punts else ""))
@@ -609,22 +632,30 @@ with tab_room:
         table["Δ"] = view["delta"]
         table["Flag"] = view["flag"].map({"STEAL": "🟢 STEAL", "REACH": "🔴 REACH"}).fillna("")
         table["Next"] = np.where(gone, f"⏳ gone by #{next_mine}", "")
-        table = table.reset_index(drop=True)
+        # Market columns sit right after the value so STEAL/REACH is visible without scrolling.
+        lead = ["Rk", "Player", "Team", "Pos", "Z", "Fit", "FP", "Value", "ADP", "Δ", "Flag", "Next", "Inj", "GP"]
+        table = table[[c for c in lead if c in table] + [c for c in table if c not in lead]].reset_index(drop=True)
         styler = table.style.map(z_color, subset=z_cols)
         if not vs.is_points:
-            styler = styler.map(z_color, subset=["Z"], scale=max(2.5, 2.5 * len(cats) ** 0.5))
+            styler = styler.map(z_color, subset=["Z"] + (["Fit"] if fit_weights else []),
+                                scale=max(2.5, 2.5 * len(cats) ** 0.5))
         cfg = {c: st.column_config.NumberColumn(c, format="%.2f", width="small") for c in z_cols}
         cfg.update({
-            "Rk": st.column_config.NumberColumn(width="small"),
-            "Z": st.column_config.NumberColumn(format="%.2f", width="small"),
+            "Rk": st.column_config.NumberColumn(width=42),
+            "Team": st.column_config.TextColumn(width=48),
+            "Pos": st.column_config.TextColumn(width=64),
+            "Flag": st.column_config.TextColumn(width=84),
+            "Next": st.column_config.TextColumn(width=110),
+            "Z": st.column_config.NumberColumn(format="%.2f", width=58),
+            "Fit": st.column_config.NumberColumn(format="%.2f", width="small", help="Z re-weighted for your team"),
             "GP": st.column_config.NumberColumn(format="%d", width="small"),
-            "ADP": st.column_config.NumberColumn(format="%.1f", width="small"),
-            "Δ": st.column_config.NumberColumn(format="%+.0f", width="small"),
+            "ADP": st.column_config.NumberColumn(format="%.1f", width=56),
+            "Δ": st.column_config.NumberColumn(format="%+.0f", width=48),
             "FP": st.column_config.NumberColumn(format="%.1f"),
             "Value": st.column_config.NumberColumn(format="%+.1f"),
             **{c: st.column_config.NumberColumn(format="%.1f") for c in ["PTS", "REB", "AST", "STL", "BLK", "TO"]},
         })
-        event = st.dataframe(styler, hide_index=True, height=620, column_config=cfg, on_select="rerun",
+        event = st.dataframe(styler, hide_index=True, height=620, column_config=cfg, on_select="rerun", placeholder="",
                              selection_mode="single-row", key=f"avail_{len(state.picks)}_{S['pos_filter']}_{S['order']}")
         rows = event.selection.rows if event is not None else []
         sel_pid = view["player_id"].iloc[rows[0]] if rows else None
@@ -638,6 +669,9 @@ with tab_room:
                        f"FT% {lr.get('FT%', 0):.3f}. ≈ = approximate positions; ·p = punted.")
         else:
             b2.caption(f"Replacement level: {info.get('replacement_fp', 0):.1f} FP ({vs.stat_mode.replace('_', ' ')}).")
+        if fit_weights:
+            st.caption("Team-fit weights (0 = punted or locked up, 1.5 = competitive middle): "
+                       + " · ".join(f"{c} {w:g}" for c, w in fit_weights.items()))
 
     with right:
         st.subheader(f"My team · {state.settings.team_name(me)}")
@@ -649,8 +683,7 @@ with tab_room:
             order_ = sorted(fp, key=fp.get, reverse=True)
             st.metric("My projected FP", f"{fp.get(me, 0):.1f}", f"rank {order_.index(me) + 1} of {N}",
                       delta_color="off", delta_arrow="off")
-        elif cats:
-            table_t = roster.team_category_table(valued, team_ids, cats, vs.stat_mode)
+        elif table_t is not None:
             summary = roster.my_category_summary(table_t, me, cats, vs.punts)
             show = pd.DataFrame({
                 "Cat": summary["cat"],

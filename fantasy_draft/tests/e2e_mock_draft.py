@@ -136,7 +136,7 @@ def run(args, runtime: Path, port: int, total: int) -> None:
     print(f"final pick metric: {final_metric}")
     print(f"picks saved: {len(picks)} / {total}; unique players: {len({x['player_id'] for x in picks})}")
     print(f"picks per team: min {min(per_team.values())}, max {max(per_team.values())}")
-    print(f"top fuzzy match was the intended player: {top_hits}/{total}")
+    print(f"top search suggestion was the intended player: {top_hits}/{total}")
     print(f"seconds per pick (type + Enter + rerun): median {sorted(timings)[len(timings) // 2]:.2f}, max {max(timings):.2f}")
     assert len(picks) == total and len({x["player_id"] for x in picks}) == total
     assert set(per_team.values()) == {args.rounds} and final_metric == "Done"

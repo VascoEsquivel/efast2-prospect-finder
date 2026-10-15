@@ -178,3 +178,42 @@ def my_category_summary(table: pd.DataFrame, my_team: int, cats: list[str], punt
             "lower_is_better": c in INVERTED,
         })
     return pd.DataFrame(rows)
+
+
+# ── Phase 2: "best for my team" ───────────────────────────────────────────────
+
+def team_fit_weights(table: pd.DataFrame, my_team: int, cats: list[str], punts=(),
+                     lock_margin: float = 1.0) -> dict[str, float]:
+    """Per-category weights for a team-aware sort.
+
+    punted -> 0; locked (top ~15% of teams AND >= lock_margin summed z ahead of the next team) -> 0;
+    competitive middle (rank in the 25%-75% band) -> 1.5; everything else -> 1.0.
+    """
+    n = len(table)
+    if my_team not in table.index or table.loc[my_team, "players"] == 0 or n < 2:
+        return {c: 0.0 if c in punts else 1.0 for c in cats}
+    top_band = max(1, int(np.ceil(0.15 * n)))
+    weights = {}
+    for c in cats:
+        rank = int(table.loc[my_team, f"{c}_rank"])
+        mine = float(table.loc[my_team, f"{c}_z"])
+        others = table.drop(index=my_team)[f"{c}_z"]
+        lead = mine - float(others.max()) if len(others) else 0.0
+        if c in punts:
+            weights[c] = 0.0
+        elif rank <= top_band and lead >= lock_margin:
+            weights[c] = 0.0
+        elif 0.25 * n < rank <= 0.75 * n:
+            weights[c] = 1.5
+        else:
+            weights[c] = 1.0
+    return weights
+
+
+def team_fit_scores(valued: pd.DataFrame, weights: dict[str, float]) -> pd.Series:
+    """Weighted sum of per-category z-scores (valued must carry Z_<cat> columns)."""
+    score = pd.Series(0.0, index=valued.index)
+    for c, w in weights.items():
+        if w and f"Z_{c}" in valued:
+            score = score + w * valued[f"Z_{c}"].fillna(0)
+    return score
