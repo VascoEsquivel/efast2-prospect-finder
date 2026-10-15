@@ -10,7 +10,27 @@ It runs on your laptop, for you only.
 
 ## Setup
 
-Requires Python 3.11+.
+You need Python 3.11 or newer ([python.org/downloads](https://www.python.org/downloads/); on Windows, tick "Add python.exe to PATH" in the installer). Then get the code:
+
+```bash
+git clone https://github.com/VascoEsquivel/efast2-prospect-finder
+cd efast2-prospect-finder
+git checkout claude/quirky-cori-s3ubk2
+```
+
+**Launch it with one step.** The first run creates `fantasy_draft/.venv` and installs everything, which takes a minute or two. Later runs start in seconds and only reinstall if `requirements.txt` changes.
+
+| Your computer | How to launch |
+|---|---|
+| Mac | Double-click `fantasy_draft/start.command`. If macOS blocks it, right-click → Open the first time. |
+| Windows | Double-click `fantasy_draft\start.bat`. |
+| Any terminal | `python3 fantasy_draft/start.py`, or `py -3 fantasy_draft\start.py` on Windows. |
+
+Your browser opens http://localhost:8501. Keep the launcher window open while you draft; closing it, or pressing Ctrl+C, stops the app.
+
+The app works with **no network at all**: it starts on the bundled 2025-26 stats, or on synthetic test data if you pick that source.
+
+<details><summary>Manual setup instead of the launcher</summary>
 
 ```bash
 cd fantasy_draft
@@ -18,8 +38,7 @@ python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\
 pip install -r requirements.txt
 streamlit run app.py
 ```
-
-The app opens at http://localhost:8501. It works with **no network at all**: it starts on the bundled 2025-26 stats, or on synthetic test data if you pick that source.
+</details>
 
 ### Before draft day
 
@@ -156,6 +175,7 @@ The e2e script needs `pip install playwright && playwright install chromium`. It
 ## Files
 
 ```
+start.py / start.command / start.bat   one-step setup + launch
 app.py               Streamlit UI only
 data_fetcher.py      every source -> one normalized DataFrame; name matching; snapshots
 valuation.py         z-scores, replacement pool, points, ADP flags (pure)
