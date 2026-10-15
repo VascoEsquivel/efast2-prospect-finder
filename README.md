@@ -13,8 +13,8 @@ Run it on your laptop, or deploy it free on Streamlit Community Cloud and open i
 You need Python 3.11 or newer ([python.org/downloads](https://www.python.org/downloads/)). On Windows, tick "Add python.exe to PATH" in the installer.
 
 **Get the code** in either of two ways:
-- **Download:** on the repo's GitHub page, click **Code → Download ZIP**, then unzip it. On Windows, use right-click → Extract All.
-- **Clone:** `git clone https://github.com/VascoEsquivel/fantasy-draft-assistant`
+- **Download:** open https://github.com/VascoEsquivel/efast2-prospect-finder/archive/refs/heads/fantasy-draft-app.zip and unzip it. On Windows, use right-click → Extract All.
+- **Clone:** `git clone -b fantasy-draft-app https://github.com/VascoEsquivel/efast2-prospect-finder fantasy-draft`
 
 **Launch it with one step.** The first run creates `.venv` and installs everything, which takes a minute or two. Later runs start in seconds and only reinstall if `requirements.txt` changes.
 
@@ -39,20 +39,20 @@ streamlit run app.py
 
 ## Deploy on Streamlit Community Cloud (free)
 
-1. Go to [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub. Allow access to private repositories when asked.
+1. Go to [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.
 2. Click **Create app → Deploy a public app from GitHub**, then set:
-   - **Repository:** `VascoEsquivel/fantasy-draft-assistant`
-   - **Branch:** `main`
+   - **Repository:** `VascoEsquivel/efast2-prospect-finder`
+   - **Branch:** `fantasy-draft-app`
    - **Main file path:** `app.py`
 3. Optional: under **Advanced settings**, pick Python 3.12.
-4. Click **Deploy**. Every push to `main` updates the app automatically.
+4. Click **Deploy**. Every push to the `fantasy-draft-app` branch updates the app automatically.
 
-The dark theme comes from `.streamlit/config.toml`, which Streamlit Cloud only reads at the repository root. That's why the app lives in its own repo.
+The `fantasy-draft-app` branch holds this app at its top level, separate from the EFAST2 tool on `main`, because Streamlit Cloud only reads the theme file (`.streamlit/config.toml`) at the top of the branch it deploys. The branch is generated from the `fantasy_draft/` folder of the development branch with `git subtree split`.
 
 Things to know on Streamlit Cloud:
 - **Files reset when the app restarts.** Your saved draft is lost if the app restarts mid-draft. Use **Download draft backup** now and then; **Restore draft backup** brings it back.
 - **The app sleeps after 12 hours without visitors.** Open it a few minutes before your draft.
-- **Who can see it:** apps deployed from a private repo start out private. Invite viewers under App settings → Sharing.
+- **Who can see it:** this repo is public, so anyone with the app's link can open it, and they'd be using the same saved draft as you. The URL is hard to guess. To lock it down, move the app to a private repo; Streamlit Cloud apps from private repos start out private.
 - **Network access:** Streamlit's servers aren't behind the network block this app was built in, so the ESPN and Sleeper buttons may work there. Run the probe first to confirm the endpoints.
 
 ### Before draft day
