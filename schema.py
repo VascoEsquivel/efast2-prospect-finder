@@ -9,7 +9,9 @@ SCHEMA_COLUMNS = [
     "player_id", "name", "name_key", "team", "positions", "positions_source", "injury_status",
     *STAT_COLS,
     "adp_espn", "adp_sleeper", "espn_id", "sleeper_id", "source",
+    "adp_market",  # optional extra: any other market rank (e.g. an expert-consensus CSV)
 ]
+ADP_COLUMNS = {"ESPN ADP": "adp_espn", "Sleeper ADP": "adp_sleeper", "Market rank": "adp_market"}
 
 FANTASY_POSITIONS = ["PG", "SG", "SF", "PF", "C"]
 
@@ -53,7 +55,11 @@ def normalize_team(abbr) -> str:
 
 
 def expand_positions(raw) -> list[str]:
-    """Turn 'PG/SG', 'G', ['PF','C'], 'F-C' etc. into an ordered list of fantasy positions."""
+    """Turn 'PG/SG', 'G', ['PF','C'], 'F-C' etc. into an ordered list of fantasy positions.
+
+    Exact positions win: ['SG', 'G'] -> ['SG'] (a generic 'G' slot tag must not add PG).
+    Coarse groups are only expanded when no exact position is given.
+    """
     if raw is None:
         return []
     if isinstance(raw, str):
@@ -63,6 +69,9 @@ def expand_positions(raw) -> list[str]:
             parts = [str(p).strip().upper() for p in raw if str(p).strip()]
         except TypeError:
             return []
+    exact = [p for p in parts if p in FANTASY_POSITIONS]
+    if exact:
+        return [p for p in FANTASY_POSITIONS if p in exact]
     out: list[str] = []
     for p in parts:
         for fp in COARSE_POSITION_MAP.get(p, [p] if p in FANTASY_POSITIONS else []):

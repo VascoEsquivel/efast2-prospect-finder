@@ -1,7 +1,6 @@
 import time
 
 import numpy as np
-import pandas as pd
 import pytest
 
 import roster as r
@@ -46,6 +45,19 @@ def test_value_breaks_ties_between_full_assignments():
     players = [p("Star", ["PG"], 9), p("Scrub", ["PG"], 1)]
     a = r.assign_roster(players, ["PG"])
     assert slots_of(a) == {"Star": "PG"} and a.bench[0]["name"] == "Scrub"
+
+
+def test_specific_slot_preferred_over_util():
+    a = r.assign_roster([p("Big", ["C"], 9)], r.DEFAULT_STARTERS)
+    assert slots_of(a) == {"Big": "C"}
+    a = r.assign_roster([p("Big", ["C"], 9), p("Big2", ["C"], 8)], r.DEFAULT_STARTERS)
+    assert slots_of(a) == {"Big": "C", "Big2": "UTIL"}
+
+
+def test_flexible_slot_left_open_before_specific_one():
+    players = [p("Wing", ["SF", "PF"], 5), p("Wing2", ["SF", "PF"], 4)]
+    a = r.assign_roster(players, ["SF", "PF", "F"])
+    assert set(slots_of(a).values()) == {"SF", "PF"}
 
 
 def test_unknown_positions_only_fit_flex():
