@@ -55,7 +55,8 @@ class Assignment:
 
 
 def assign_roster(players: list[dict], starters: list[str] = DEFAULT_STARTERS) -> Assignment:
-    """Place players into starting slots, maximizing (slots filled, then starters' total value).
+    """Place players into starting slots, maximizing (slots filled, starters' total value, players
+    in position-specific slots). The last tie-break keeps UTIL open: a lone C goes to C, not UTIL.
 
     Exact search, not greedy: memoized backtracking over the position-restricted slots
     (state = slot index + bitmask of used players). UTIL slots accept anyone, so once the
@@ -71,26 +72,29 @@ def assign_roster(players: list[dict], starters: list[str] = DEFAULT_STARTERS) -
     elig = [[j for j in range(n) if eligible(s, players[j].get("positions"))] for s in restricted]
     # Most-constrained slots first keeps the search tiny.
     order = sorted(range(len(restricted)), key=lambda i: (len(elig[i]), i))
+    specificity = [2 if len(SLOT_ELIGIBILITY[restricted[i]]) == 1 else 1 for i in order]
     by_value = sorted(range(n), key=lambda j: (-values[j], j))
 
-    def util_fill(mask: int) -> tuple[int, float, tuple[int, ...]]:
+    def util_fill(mask: int) -> tuple[int, float, int, tuple[int, ...]]:
         chosen = tuple(j for j in by_value if not mask >> j & 1)[:n_util]
-        return len(chosen), sum(values[j] for j in chosen), chosen
+        return len(chosen), sum(values[j] for j in chosen), 0, chosen
 
     @lru_cache(maxsize=None)
-    def best(k: int, mask: int) -> tuple[int, float, tuple[int, ...]]:
-        """Best (filled, value, picks) for restricted slots order[k:] plus UTIL, given used `mask`."""
+    def best(k: int, mask: int) -> tuple[int, float, int, tuple[int, ...]]:
+        """Best (filled, value, restricted, picks) for slots order[k:] plus UTIL, given used `mask`."""
         if k == len(order):
             return util_fill(mask)
-        options = [best(k + 1, mask)]  # leave this slot empty
-        options[0] = (options[0][0], options[0][1], (-1,) + options[0][2])
+        f, val, r, picks = best(k + 1, mask)  # leave this slot empty
+        options = [(f, val, r, (-1,) + picks)]
         for j in elig[order[k]]:
             if not mask >> j & 1:
-                f, val, picks = best(k + 1, mask | 1 << j)
-                options.append((f + 1, val + values[j], (j,) + picks))
-        return max(options, key=lambda o: (o[0], round(o[1], 9)))
+                f, val, r, picks = best(k + 1, mask | 1 << j)
+                # Filling a single-position slot scores higher than a G/F-style one, so flexible
+                # slots stay open when both choices start the same players.
+                options.append((f + 1, val + values[j], r + specificity[k], (j,) + picks))
+        return max(options, key=lambda o: (o[0], round(o[1], 9), o[2]))
 
-    _, _, picks = best(0, 0)
+    *_, picks = best(0, 0)
     restricted_choice = dict(zip(order, picks[:len(order)]))
     util_choice = list(picks[len(order):])
 
@@ -161,8 +165,10 @@ def my_category_summary(table: pd.DataFrame, my_team: int, cats: list[str], punt
     """Dashboard rows for one team: category, raw value, summed Z, rank of N."""
     n = len(table)
     rows = []
+    r = table.loc[my_team] if my_team in table.index else None
+    if r is not None and r["players"] == 0:
+        r = None  # no picks yet: nothing to rank
     for c in cats:
-        r = table.loc[my_team] if my_team in table.index else None
         rows.append({
             "cat": c + (" (punt)" if c in punts else ""),
             "value": None if r is None else r[f"{c}_raw"],
