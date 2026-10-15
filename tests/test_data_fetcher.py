@@ -295,3 +295,33 @@ def test_nba_api_frame_parser():
                         "FTA": [9.0]})
     df = dfm.finalize_schema(dfm.parse_nba_api_frame(raw), "nba_api")
     assert df.iloc[0]["player_id"] == "nba:1628983" and df.iloc[0]["3PM"] == 1.7 and df.iloc[0]["TO"] == 2.2
+
+
+# ── Empty / changed API responses must never replace a good snapshot ─────────
+
+def test_empty_fetch_keeps_previous_snapshot(tmp_data):
+    good = dfm.synthetic_players(10)
+    dfm.fetch_with_fallback("x", lambda: (good, dfm.SourceMeta(source="X", kind="projections", fetched_at="t0")))
+    df, m = dfm.fetch_with_fallback("x", lambda: (pd.DataFrame(), dfm.SourceMeta(source="X", kind="projections")))
+    assert m.from_cache and len(df) == 10
+    assert "no players" in m.warnings[0]
+    assert len(dfm.load_snapshot("x")[0]) == 10
+
+
+def test_empty_snapshot_left_on_disk_is_ignored(tmp_data):
+    dfm.save_snapshot("bad", pd.DataFrame(), dfm.SourceMeta(source="bad", kind="x"))
+    assert dfm.load_snapshot("bad") is None
+
+
+def test_espn_answer_without_projections_is_a_failure(tmp_data, monkeypatch):
+    class Resp:
+        def json(self):
+            return {"players": [{"id": 1, "player": {"id": 1, "fullName": "No Projection", "stats": []}}]}
+    monkeypatch.setattr(dfm, "_get", lambda *a, **k: Resp())
+    with pytest.raises(dfm.SourceError, match="no 2027 projections"):
+        dfm.fetch_espn()
+
+
+def test_adp_auto_map_falls_back_to_header_containing_adp():
+    m = dfm.auto_map_columns(["Player", "ADP (Sleeper)", "Team"], dfm.ADP_TARGETS)
+    assert m["name"] == "Player" and m["adp"] == "ADP (Sleeper)"
