@@ -174,3 +174,12 @@ def test_team_fit_neutral_before_any_picks_and_scores():
     assert r.team_fit_weights(table, 1, ["PTS", "REB"], punts=["REB"]) == {"PTS": 1.0, "REB": 0.0}
     valued = pd.DataFrame({"Z_PTS": [1.0, -1.0], "Z_REB": [2.0, 0.0]})
     assert r.team_fit_scores(valued, {"PTS": 1.5, "REB": 0.0}).tolist() == [1.5, -1.5]
+
+
+def test_percentage_category_is_locked_only_for_the_leader():
+    # Team 1 has more FG% impact (z) but a lower raw FG% than team 2, so it ranks 2nd and must not be "locked".
+    rows = {t: {"FG%": (0.0, t), "PTS": (0.0, t)} for t in range(1, 8)}
+    rows[1] = {"FG%": (4.05, 2), "PTS": (0.0, 4)}
+    rows[2] = {"FG%": (1.67, 1), "PTS": (0.0, 3)}
+    w = r.team_fit_weights(fit_table(rows), 1, ["FG%", "PTS"])
+    assert w["FG%"] != 0.0

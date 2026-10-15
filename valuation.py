@@ -85,13 +85,19 @@ def apply_stat_mode(df: pd.DataFrame, mode: str) -> pd.DataFrame:
 
 def league_rate(stats: pd.DataFrame, pool: np.ndarray, makes: str, attempts: str) -> float:
     """Pool-wide rate = sum(makes) / sum(attempts), NOT the mean of individual percentages."""
-    a = stats.loc[pool, attempts].fillna(0).sum()
+    att = _known_attempts(stats, makes, attempts)
+    a = att[pool].sum()
     return float(stats.loc[pool, makes].fillna(0).sum() / a) if a > 0 else 0.0
+
+
+def _known_attempts(stats: pd.DataFrame, makes: str, attempts: str) -> pd.Series:
+    """Attempts only where makes are known, so a missing FG% counts as average, not 0-for-N."""
+    return stats[attempts].where(stats[makes].notna(), 0).fillna(0)
 
 
 def pct_impact(stats: pd.DataFrame, makes: str, attempts: str, rate: float) -> pd.Series:
     """Makes above what a league-average shooter would convert on the same attempts."""
-    return stats[makes].fillna(0) - rate * stats[attempts].fillna(0)
+    return stats[makes].fillna(0) - rate * _known_attempts(stats, makes, attempts)
 
 
 def category_zscores(stats: pd.DataFrame, pool: np.ndarray, cats: list[str]) -> tuple[pd.DataFrame, dict]:
@@ -135,6 +141,11 @@ def iterate_pool(stats: pd.DataFrame, cats: list[str], mults: dict[str, float], 
         eligible = np.ones(len(stats), dtype=bool)
     pool = _top_mask(stats["MIN"].fillna(0), eligible, pool_size)
     weights = pd.Series({c: mults.get(c, 1.0) for c in cats}, dtype=float)
+    if not cats or not weights.any():
+        # Everything punted: Z_total is 0 for all, so re-pooling would just pick file order. Keep the seed.
+        z, rates = category_zscores(stats, pool, cats)
+        return PoolResult(z=z, total=pd.Series(0.0, index=stats.index), pool=pool, iterations=0,
+                          converged=True, league_rates=rates)
 
     iterations, converged = 0, False
     while True:

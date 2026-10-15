@@ -229,3 +229,20 @@ def test_valuate_ranks_and_adp_columns():
     has_adp = out["adp"].notna()
     assert (out.loc[has_adp, "delta"] == out.loc[has_adp, "adp"] - out.loc[has_adp, "rank"]).all()
     assert set(out["flag"]) <= {"STEAL", "REACH", ""}
+
+
+# ── Bug-hunt regressions ──────────────────────────────────────────────────────
+
+def test_unknown_makes_are_neutral_not_zero_percent():
+    df = frame([{"FGM": 7.5, "FGA": 15}, {"FGM": 6, "FGA": 12}, {"FGM": 4.5, "FGA": 10}, {"FGM": np.nan, "FGA": 15}])
+    z, _ = v.category_zscores(v.apply_stat_mode(df, "per_game"), all_pool(4), ["FG%"])
+    impact = v.pct_impact(v.apply_stat_mode(df, "per_game"), "FGM", "FGA", 0.5)
+    assert impact.iloc[3] == 0  # unknown shooting counts as league average, not 0-for-15
+
+
+def test_all_punted_keeps_the_minutes_pool():
+    df = synthetic_players(80).sample(frac=1, random_state=3).reset_index(drop=True)
+    stats = v.apply_stat_mode(df, "per_game")
+    res = v.iterate_pool(stats, v.CATEGORIES, v.multipliers(v.CATEGORIES, v.CATEGORIES), 20)
+    seed = v._top_mask(stats["MIN"].fillna(0), np.ones(len(df), bool), 20)
+    assert np.array_equal(res.pool, seed) and (res.total == 0).all()

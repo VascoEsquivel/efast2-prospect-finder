@@ -325,3 +325,55 @@ def test_espn_answer_without_projections_is_a_failure(tmp_data, monkeypatch):
 def test_adp_auto_map_falls_back_to_header_containing_adp():
     m = dfm.auto_map_columns(["Player", "ADP (Sleeper)", "Team"], dfm.ADP_TARGETS)
     assert m["name"] == "Player" and m["adp"] == "ADP (Sleeper)"
+
+
+# ── Bug-hunt regressions ──────────────────────────────────────────────────────
+
+def test_missing_ids_never_match_each_other_after_snapshot_roundtrip(tmp_data):
+    base = dfm.finalize_schema(pd.DataFrame({"name": ["Alpha One", "Beta Two", "Gamma Three", "Delta Four"],
+                                             "team": ["BOS", "LAL", "MIA", "NYK"],
+                                             "espn_id": ["101", None, "103", None]}), "base")
+    other = dfm.finalize_schema(pd.DataFrame({
+        "name": ["Alpha One", "Beta Two", "Gamma Three", "Delta Four", "Zeta Six"],
+        "team": ["BOS", "LAL", "MIA", "NYK", "DEN"], "espn_id": ["101", None, "103", None, None],
+        "sleeper_id": ["s1", "s2", "s3", "s4", "s6"], "positions": [["PG"]] * 5, "positions_source": "sleeper"}), "sl")
+    meta = dfm.SourceMeta(source="x", kind="x")
+    dfm.save_snapshot("b", base, meta)
+    dfm.save_snapshot("o", other, meta)
+    b2, o2 = dfm.load_snapshot("b")[0], dfm.load_snapshot("o")[0]
+    assert dfm.match_players(b2, o2).tolist()[:4] == [0, 1, 2, 3] and np.isnan(dfm.match_players(b2, o2).iloc[4])
+    out, rep = dfm.enrich(b2, o2, "Sleeper", live_metadata=True)
+    assert out["team"].tolist() == ["BOS", "LAL", "MIA", "NYK"]
+    assert out["sleeper_id"].tolist() == ["s1", "s2", "s3", "s4"]
+    assert rep.unmatched_other["name"].tolist() == ["Zeta Six"]
+
+
+def test_namesake_prefers_same_team_even_with_one_base_candidate():
+    base = dfm.finalize_schema(pd.DataFrame({"name": ["Jalen Smith"], "team": ["CHI"]}), "base")
+    other = dfm.finalize_schema(pd.DataFrame({"name": ["Jalen Smith", "Jalen Smith"], "team": ["PHX", "CHI"],
+                                              "sleeper_id": ["s_phx", "s_chi"]}), "sl")
+    assert dfm.match_players(base, other).tolist()[1] == 0
+    assert np.isnan(dfm.match_players(base, other).iloc[0])
+
+
+def test_bare_fg_ft_headers_are_makes_not_percentages():
+    raw = pd.DataFrame({"Player": ["Test Player 001", "Test Player 002"], "MIN": [30, 20],
+                        "FG": [9.0, 1.2], "FGA": [18, 3], "FT": [5.0, 0.4], "FTA": [6, 0.5]})
+    m = dfm.auto_map_columns(raw.columns)
+    assert m["FGM"] == "FG" and m["FTM"] == "FT" and m["FG%"] is None
+    df, _ = dfm.load_projection_csv(raw, m)
+    assert df["FGM"].tolist() == [9.0, 1.2] and df["FTM"].tolist() == [5.0, 0.4]
+
+
+def test_makes_above_attempts_are_flagged():
+    raw = pd.DataFrame({"Player": ["Test Player 001"], "FG%": ["150"], "FGA": [10], "MIN": [30]})
+    _, meta = dfm.load_projection_csv(raw, dfm.auto_map_columns(raw.columns))
+    assert any("more makes than attempts" in w for w in meta.warnings)
+
+
+def test_blank_name_rows_are_dropped():
+    raw = pd.DataFrame({"Player": ["A Guy", None, "B Guy", float("nan")], "PTS": [10, 99, 12, 5], "MIN": [30, 40, 25, 20]})
+    df, _ = dfm.load_projection_csv(raw, dfm.auto_map_columns(raw.columns))
+    assert df["name"].tolist() == ["A Guy", "B Guy"]
+    adp = dfm.finalize_adp(pd.DataFrame({"name": ["A Guy", None], "adp": [1, 2]}))
+    assert adp["name"].tolist() == ["A Guy"]
