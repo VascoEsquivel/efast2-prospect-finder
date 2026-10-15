@@ -186,13 +186,12 @@ def team_fit_weights(table: pd.DataFrame, my_team: int, cats: list[str], punts=(
                      lock_margin: float = 1.0) -> dict[str, float]:
     """Per-category weights for a team-aware sort.
 
-    punted -> 0; locked (top ~15% of teams AND >= lock_margin summed z ahead of the next team) -> 0;
+    punted -> 0; locked (ranked 1st AND >= lock_margin summed z ahead of the next team) -> 0;
     competitive middle (rank in the 25%-75% band) -> 1.5; everything else -> 1.0.
     """
     n = len(table)
     if my_team not in table.index or table.loc[my_team, "players"] == 0 or n < 2:
         return {c: 0.0 if c in punts else 1.0 for c in cats}
-    top_band = max(1, int(np.ceil(0.15 * n)))
     weights = {}
     for c in cats:
         rank = int(table.loc[my_team, f"{c}_rank"])
@@ -201,7 +200,7 @@ def team_fit_weights(table: pd.DataFrame, my_team: int, cats: list[str], punts=(
         lead = mine - float(others.max()) if len(others) else 0.0
         if c in punts:
             weights[c] = 0.0
-        elif rank <= top_band and lead >= lock_margin:
+        elif rank == 1 and lead >= lock_margin:
             weights[c] = 0.0
         elif 0.25 * n < rank <= 0.75 * n:
             weights[c] = 1.5

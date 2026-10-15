@@ -112,6 +112,7 @@ def finalize_schema(df: pd.DataFrame, source: str, overrides: dict[str, str] | N
     src = df.reset_index(drop=True)
     for c in SCHEMA_COLUMNS:
         out[c] = src[c] if c in src else None
+    out = out[out["name"].notna()]  # before astype(str): pandas 2 would turn NaN into the name "nan"
     out["name"] = out["name"].astype(str).str.strip()
     out = out[out["name"].str.len() > 0].reset_index(drop=True)
     out["name_key"] = [name_key(n, overrides) for n in out["name"]]
@@ -209,6 +210,9 @@ def load_snapshot(key: str) -> tuple[pd.DataFrame, SourceMeta] | None:
         return None  # unusable (e.g. written by an older version after an empty API answer)
     if "positions" in df:
         df["positions"] = [list(_as_list(p)) if p is not None else [] for p in df["positions"]]
+    for col in ["espn_id", "sleeper_id"]:
+        if col in df:  # pandas 3 reads missing ids back as NaN; keep them as None like fresh data
+            df[col] = pd.Series([_id_str(v) for v in df[col]], index=df.index, dtype=object)
     try:
         meta = SourceMeta(**json.loads((CACHE_DIR / f"{key}.meta.json").read_text()))
     except (FileNotFoundError, json.JSONDecodeError, TypeError):
@@ -523,12 +527,12 @@ CSV_ALIASES = {
     "STL": ["stl", "steals", "spg", "stl/g"],
     "BLK": ["blk", "blocks", "bpg", "blk/g"],
     "TO": ["to", "tov", "turnovers", "topg", "to/g", "tov/g"],
-    "FGM": ["fgm", "fg made", "fgm/g"],
+    "FGM": ["fgm", "fg made", "fgm/g", "fg"],  # Basketball-Reference style: FG = makes
     "FGA": ["fga", "fg att", "fg attempts", "fga/g"],
-    "FTM": ["ftm", "ft made", "ftm/g"],
+    "FTM": ["ftm", "ft made", "ftm/g", "ft"],
     "FTA": ["fta", "ft att", "ft attempts", "fta/g"],
-    "FG%": ["fg%", "fg pct", "fg_pct", "fgpct", "field goal %", "fg"],
-    "FT%": ["ft%", "ft pct", "ft_pct", "ftpct", "free throw %", "ft"],
+    "FG%": ["fg%", "fg pct", "fg_pct", "fgpct", "field goal %"],
+    "FT%": ["ft%", "ft pct", "ft_pct", "ftpct", "free throw %"],
     "adp": ["adp", "avg pick", "average draft position", "avg. pick", "espn adp", "yahoo adp", "sleeper adp",
             "avg", "adp overall", "overall adp"],
     "espn_id": ["espn_id", "espn id", "espnid"],
@@ -605,6 +609,9 @@ def load_projection_csv(raw: pd.DataFrame, mapping: dict[str, str | None], seaso
             warnings.append(f"{a} derived as {m} / {pct}")
         if df[m].isna().all() or df[a].isna().all():
             warnings.append(f"{pct} needs {m} and {a} (or {pct} plus one of them); it will score 0 for everyone")
+        too_many = int((df[m] > df[a] + 1e-9).sum())
+        if too_many:
+            warnings.append(f"{too_many} rows have more makes than attempts for {pct[:-1]}: check the column mapping")
     if season_totals:
         gp = df["GP"]
         if gp.isna().all():
@@ -622,6 +629,7 @@ def load_projection_csv(raw: pd.DataFrame, mapping: dict[str, str | None], seaso
 
 
 def finalize_adp(df: pd.DataFrame, overrides: dict[str, str] | None = None) -> pd.DataFrame:
+    df = df[df["name"].notna()]
     out = pd.DataFrame({"name": df["name"].astype(str).str.strip(), "adp": _num(df["adp"])})
     for c in ["team", "espn_id", "sleeper_id"]:
         out[c] = df[c] if c in df else None
@@ -668,18 +676,24 @@ def match_players(base: pd.DataFrame, other: pd.DataFrame) -> pd.Series:
     result = pd.Series(np.nan, index=other.index, dtype=float)
     for col in ["espn_id", "sleeper_id"]:
         if col in base and col in other:
-            lookup = {v: i for i, v in base[col].items() if v}
-            hits = other[col].map(lambda v: lookup.get(v) if v else None)
+            lookup = {k: i for i, v in base[col].items() if (k := _id_str(v))}
+            hits = other[col].map(lambda v: lookup.get(_id_str(v)) if _id_str(v) else None)
             result = result.where(result.notna(), pd.to_numeric(hits, errors="coerce"))
     by_key: dict[str, list[int]] = {}
     for i, k in base["name_key"].items():
         by_key.setdefault(k, []).append(i)
     taken = set(result.dropna().astype(int))
+    # Pass 1: same name AND same team, so namesakes pair up regardless of row order.
+    if "team" in other and "team" in base:
+        for j in other.index[result.isna()]:
+            same = [i for i in by_key.get(other.at[j, "name_key"], [])
+                    if i not in taken and base.at[i, "team"] == other.at[j, "team"] and other.at[j, "team"] != "FA"]
+            if len(same) == 1:
+                result.at[j] = same[0]
+                taken.add(same[0])
+    # Pass 2: a unique remaining name.
     for j in other.index[result.isna()]:
         cands = [i for i in by_key.get(other.at[j, "name_key"], []) if i not in taken]
-        if len(cands) > 1 and "team" in other:
-            same_team = [i for i in cands if base.at[i, "team"] == other.at[j, "team"]]
-            cands = same_team if len(same_team) == 1 else cands
         if len(cands) == 1:
             result.at[j] = cands[0]
             taken.add(cands[0])
@@ -713,8 +727,8 @@ def enrich(base: pd.DataFrame, other: pd.DataFrame, source: str, adp_target: str
     for j, i in m.dropna().astype(int).items():
         row = other.loc[j]
         for col in ["espn_id", "sleeper_id"]:
-            if col in other and row[col] and not out.at[i, col]:
-                out.at[i, col] = row[col]
+            if col in other and _id_str(row[col]) and not _id_str(out.at[i, col]):
+                out.at[i, col] = _id_str(row[col])
         if "positions" in other and len(row["positions"]) and \
                 _pos_rank(row["positions_source"]) > _pos_rank(out.at[i, "positions_source"]):
             out.at[i, "positions"] = list(row["positions"])
