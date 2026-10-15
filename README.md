@@ -191,7 +191,9 @@ The e2e script needs `pip install playwright && playwright install chromium`. It
 
 ```
 start.py / start.command / start.bat   one-step setup + launch (local)
-app.py               Streamlit UI only
+app.py               Streamlit UI wiring
+ui.py                dark theme CSS, cell colors and HTML cards (presentation only)
+.streamlit/config.toml  theme (dark navy + basketball orange, Inter / Barlow Condensed)
 data_fetcher.py      every source -> one normalized DataFrame; name matching; snapshots
 valuation.py         z-scores, replacement pool, points, ADP flags (pure)
 draft.py             snake order, picks, undo, persistence, Sleeper pick sync (pure)
