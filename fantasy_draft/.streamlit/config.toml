@@ -1,0 +1,35 @@
+# Dark "sporty" theme: deep navy with basketball orange as the single accent.
+# Streamlit Cloud reads this file only at the top of the deployed branch (fantasy-draft-app is this folder).
+# Fonts load from Google Fonts; offline, Streamlit falls back to the system sans-serif.
+
+[theme]
+base = "dark"
+primaryColor = "#FF7A1A"
+backgroundColor = "#0A0F1C"
+secondaryBackgroundColor = "#131C2E"
+textColor = "#E7ECF5"
+borderColor = "#22304B"
+linkColor = "#FF9A4D"
+baseRadius = "10px"
+buttonRadius = "10px"
+showWidgetBorder = true
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap, sans-serif"
+headingFont = "'Barlow Condensed':https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&display=swap, sans-serif"
+dataframeHeaderBackgroundColor = "#101827"
+dataframeBorderColor = "#1C2740"
+greenColor = "#22C55E"
+redColor = "#F43F5E"
+orangeColor = "#FF7A1A"
+
+[theme.sidebar]
+backgroundColor = "#0D1424"
+secondaryBackgroundColor = "#152036"
+
+[server]
+showEmailPrompt = false
+
+[browser]
+gatherUsageStats = false
+
+[client]
+toolbarMode = "viewer"

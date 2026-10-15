@@ -9,3 +9,6 @@ __pycache__/
 *.pyc
 .DS_Store
 .env
+
+# The app theme must ship (the repo root ignores config.toml for the EFAST2 app).
+!.streamlit/config.toml
