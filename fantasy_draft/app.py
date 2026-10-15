@@ -178,7 +178,7 @@ def _load_base(source: str, s: dict):
     raise dfm.SourceError(f"unknown source {source!r}")
 
 
-@st.cache_data(show_spinner="Loading players…", max_entries=8)
+@st.cache_data(show_spinner="Loading players…", max_entries=8, ttl="1h")
 def assemble(sig: str, s_json: str):
     """Base source + Sleeper/ESPN metadata + ADP sources, all name-matched. Never raises."""
     s = json.loads(s_json)
@@ -200,11 +200,15 @@ def assemble(sig: str, s_json: str):
 
     def add(key: str, label: str, **kw):
         nonlocal base
-        snap = dfm.load_snapshot(key)
-        if snap is None:
+        try:
+            snap = dfm.load_snapshot(key)
+            if snap is None:
+                return
+            other, m = snap
+            base, rep = dfm.enrich(base, dfm.apply_overrides(other, overrides), label, **kw)
+        except Exception as exc:  # noqa: BLE001 - a bad secondary source must never take the app down
+            errors.append(f"{label}: skipped ({type(exc).__name__}: {exc})")
             return
-        other, m = snap
-        base, rep = dfm.enrich(base, dfm.apply_overrides(other, overrides), label, **kw)
         metas.append(m)
         reports.append(rep)
 
@@ -227,7 +231,7 @@ def assemble(sig: str, s_json: str):
     return base, metas, reports, errors
 
 
-@st.cache_data(show_spinner=False, max_entries=16)
+@st.cache_data(show_spinner=False, max_entries=16, ttl="1h")
 def valued_players(sig: str, s_json: str, vs_json: str, adp_col: str | None):
     base, metas, reports, errors = assemble(sig, s_json)
     vs = val.ValuationSettings(**{k: tuple(map(tuple, v)) if k == "points_weights" else
@@ -774,7 +778,11 @@ with tab_data:
     if f1.button("Fetch ESPN projections + ADP"):
         run_fetch("ESPN", lambda: dfm.fetch_with_fallback("espn_projections", dfm.fetch_espn))
     if f2.button("Refresh Sleeper metadata"):
-        run_fetch("Sleeper", lambda: dfm.fetch_sleeper_players(force=True))
+        age = dfm.snapshot_age_hours("sleeper_players")
+        if age is not None and age < 24:
+            flash("info", f"Sleeper metadata is {age:.1f} h old; it refreshes at most once a day.")
+            st.rerun()
+        run_fetch("Sleeper", dfm.fetch_sleeper_players)
     if f3.button("Fetch FantasyPros ECR"):
         run_fetch("FantasyPros ECR", dfm.fetch_market_rank_ecr)
     if f4.button("Refresh last season (nba_api)"):
@@ -825,6 +833,25 @@ with tab_data:
                 st.cache_data.clear()
                 st.rerun()
         st.dataframe(raw.head(8), width="stretch")
+
+    if (dfm.UPLOAD_DIR / "adp.csv").exists():
+        st.subheader("ADP CSV column mapping")
+        raw_adp = dfm.read_csv_any((dfm.UPLOAD_DIR / "adp.csv").read_bytes())
+        adp_map = S["adp_mapping"] or dfm.auto_map_columns(raw_adp.columns, dfm.ADP_TARGETS)
+        with st.form("adp_mapping_form"):
+            cols_ = st.columns(len(dfm.ADP_TARGETS))
+            new_adp_map = {}
+            options = [None, *raw_adp.columns]
+            for i, t in enumerate(dfm.ADP_TARGETS):
+                cur_col = adp_map.get(t)
+                new_adp_map[t] = cols_[i].selectbox(t, options, index=options.index(cur_col) if cur_col in options else 0,
+                                                    key=f"adpmap_{t}")
+            if st.form_submit_button("Apply ADP mapping"):
+                S["adp_mapping"] = new_adp_map
+                save_settings(S)
+                st.cache_data.clear()
+                st.rerun()
+        st.dataframe(raw_adp.head(5), width="stretch")
 
     st.subheader("ESPN stat-ID mapping")
     raw_path = dfm.latest_raw("espn_kona_player_info")

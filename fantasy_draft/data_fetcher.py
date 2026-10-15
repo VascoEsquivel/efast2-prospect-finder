@@ -205,6 +205,8 @@ def load_snapshot(key: str) -> tuple[pd.DataFrame, SourceMeta] | None:
     if not path.exists():
         return None
     df = pd.read_parquet(path)
+    if len(df) == 0 or "name" not in df.columns:
+        return None  # unusable (e.g. written by an older version after an empty API answer)
     if "positions" in df:
         df["positions"] = [list(_as_list(p)) if p is not None else [] for p in df["positions"]]
     try:
@@ -223,6 +225,9 @@ def fetch_with_fallback(key: str, fetch: Callable[[], tuple[pd.DataFrame, Source
     """Run `fetch`; on success snapshot it, on any failure return the last snapshot (flagged)."""
     try:
         df, meta = fetch()
+        if df is None or len(df) == 0 or "name" not in df.columns:
+            # An API that answers 200 with nothing usable must not replace a good snapshot.
+            raise SourceError("the source answered but returned no players")
         save_snapshot(key, df, meta)
         return df, meta
     except Exception as exc:  # noqa: BLE001 - any API breakage should fall back, not crash the draft
@@ -328,12 +333,15 @@ def fetch_espn(season: int = 2027, limit: int = 1000, timeout: float = 15) -> tu
             continue
         save_raw("espn_kona_player_info", data)
         df, warnings = parse_espn(data, season)
+        if len(df) == 0:
+            errors.append(f"{host}: answered, but with no {season} projections (not published yet, or the format changed)")
+            continue
         if len(df) < 50:
             warnings.append(f"only {len(df)} players have a {season} projection; ESPN may not have published them yet")
         label = f"ESPN projections {season - 1}-{str(season)[2:]}"
         return df, SourceMeta(source=label, kind="projections", fetched_at=_now(), origin=url,
                               n_players=len(df), warnings=warnings)
-    raise SourceError("ESPN unreachable: " + " | ".join(errors))
+    raise SourceError("ESPN: " + " | ".join(errors))
 
 
 def espn_stat_entry(entries: list[dict], season: int, kind: str = "projection") -> dict | None:
@@ -548,6 +556,13 @@ def auto_map_columns(columns, targets=PROJECTION_TARGETS) -> dict[str, str | Non
                 mapping[t] = col
                 used.add(col)
                 break
+    # Second pass for the two columns every file needs: accept headers like "ADP (Sleeper)" or "Player Name".
+    for t, needles in {"name": ("player", "name"), "adp": ("adp", "avg pick", "average pick")}.items():
+        if t in mapping and mapping[t] is None:
+            col = next((c for n, c in normed.items() if c not in used and any(x in n for x in needles)), None)
+            if col is not None:
+                mapping[t] = col
+                used.add(col)
     return mapping
 
 

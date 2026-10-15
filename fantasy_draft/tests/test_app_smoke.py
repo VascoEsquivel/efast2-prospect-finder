@@ -104,3 +104,11 @@ def test_team_fit_unlocks_after_three_of_my_picks(runtime):
     order().set_value("Team fit").run()
     assert not at.exception
     assert any("Team-fit weights" in c.value for c in at.caption)
+
+
+def test_empty_espn_snapshot_does_not_crash_the_app(runtime):
+    dfm.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    import pandas as pd
+    pd.DataFrame().to_parquet(dfm.CACHE_DIR / "espn_projections.parquet")  # left by a bad fetch
+    at = start(runtime)  # default: last season + "use ESPN ADP" on
+    assert metrics(at)["Pick"] == "#1"
