@@ -1,30 +1,28 @@
 # Fantasy Basketball Draft Assistant (2026-27)
 
-A local Streamlit app for live snake drafts. It does four things:
+A Streamlit app for live snake drafts. It does four things:
 - values players with category z-scores (9-cat, 8-cat or points);
 - flags ADP steals and reaches;
 - tracks every pick on a board that survives refreshes and crashes;
 - shows how your roster ranks in each category against every other team.
 
-It runs on your laptop, for you only.
+Run it on your laptop, or deploy it free on Streamlit Community Cloud and open it from any device.
 
-## Setup
+## Run it on your computer
 
-You need Python 3.11 or newer ([python.org/downloads](https://www.python.org/downloads/); on Windows, tick "Add python.exe to PATH" in the installer). Then get the code:
+You need Python 3.11 or newer ([python.org/downloads](https://www.python.org/downloads/)). On Windows, tick "Add python.exe to PATH" in the installer.
 
-```bash
-git clone https://github.com/VascoEsquivel/efast2-prospect-finder
-cd efast2-prospect-finder
-git checkout claude/quirky-cori-s3ubk2
-```
+**Get the code** in either of two ways:
+- **Download:** on the repo's GitHub page, click **Code → Download ZIP**, then unzip it. On Windows, use right-click → Extract All.
+- **Clone:** `git clone https://github.com/VascoEsquivel/fantasy-draft-assistant`
 
-**Launch it with one step.** The first run creates `fantasy_draft/.venv` and installs everything, which takes a minute or two. Later runs start in seconds and only reinstall if `requirements.txt` changes.
+**Launch it with one step.** The first run creates `.venv` and installs everything, which takes a minute or two. Later runs start in seconds and only reinstall if `requirements.txt` changes.
 
 | Your computer | How to launch |
 |---|---|
-| Mac | Double-click `fantasy_draft/start.command`. If macOS blocks it, right-click → Open the first time. |
-| Windows | Double-click `fantasy_draft\start.bat`. |
-| Any terminal | `python3 fantasy_draft/start.py`, or `py -3 fantasy_draft\start.py` on Windows. |
+| Mac | Double-click `start.command`. If macOS blocks it, right-click → Open the first time. |
+| Windows | Double-click `start.bat`. If "Windows protected your PC" appears, click More info → Run anyway. |
+| Any terminal | `python3 start.py`, or `py -3 start.py` on Windows. |
 
 Your browser opens http://localhost:8501. Keep the launcher window open while you draft; closing it, or pressing Ctrl+C, stops the app.
 
@@ -33,12 +31,29 @@ The app works with **no network at all**: it starts on the bundled 2025-26 stats
 <details><summary>Manual setup instead of the launcher</summary>
 
 ```bash
-cd fantasy_draft
 python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 streamlit run app.py
 ```
 </details>
+
+## Deploy on Streamlit Community Cloud (free)
+
+1. Go to [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub. Allow access to private repositories when asked.
+2. Click **Create app → Deploy a public app from GitHub**, then set:
+   - **Repository:** `VascoEsquivel/fantasy-draft-assistant`
+   - **Branch:** `main`
+   - **Main file path:** `app.py`
+3. Optional: under **Advanced settings**, pick Python 3.12.
+4. Click **Deploy**. Every push to `main` updates the app automatically.
+
+The dark theme comes from `.streamlit/config.toml`, which Streamlit Cloud only reads at the repository root. That's why the app lives in its own repo.
+
+Things to know on Streamlit Cloud:
+- **Files reset when the app restarts.** Your saved draft is lost if the app restarts mid-draft. Use **Download draft backup** now and then; **Restore draft backup** brings it back.
+- **The app sleeps after 12 hours without visitors.** Open it a few minutes before your draft.
+- **Who can see it:** apps deployed from a private repo start out private. Invite viewers under App settings → Sharing.
+- **Network access:** Streamlit's servers aren't behind the network block this app was built in, so the ESPN and Sleeper buttons may work there. Run the probe first to confirm the endpoints.
 
 ### Before draft day
 
@@ -175,7 +190,7 @@ The e2e script needs `pip install playwright && playwright install chromium`. It
 ## Files
 
 ```
-start.py / start.command / start.bat   one-step setup + launch
+start.py / start.command / start.bat   one-step setup + launch (local)
 app.py               Streamlit UI only
 data_fetcher.py      every source -> one normalized DataFrame; name matching; snapshots
 valuation.py         z-scores, replacement pool, points, ADP flags (pure)
