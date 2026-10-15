@@ -15,4 +15,4 @@ If the EFAST2 search API is unreachable from your network, the app falls back to
 
 ## Also in this repo
 
-`fantasy_draft/` holds a separate Streamlit app: a fantasy basketball draft assistant for the 2026-27 NBA season. See [fantasy_draft/README.md](fantasy_draft/README.md).
+`fantasy_draft/` holds a separate Streamlit app: a fantasy basketball draft assistant for the 2026-27 NBA season. See [fantasy_draft/README.md](fantasy_draft/README.md). For Streamlit Community Cloud, it's published on its own branch, `fantasy-draft-app`, with the app at the top level.
