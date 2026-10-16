@@ -10,6 +10,7 @@ SCHEMA_COLUMNS = [
     *STAT_COLS,
     "adp_espn", "adp_sleeper", "espn_id", "sleeper_id", "source",
     "adp_market",  # optional extra: any other market rank (e.g. an expert-consensus CSV)
+    "proj_notes",  # plain-English reasons a projection moved (bundled 2026-27 model only)
 ]
 ADP_COLUMNS = {"ESPN ADP": "adp_espn", "Sleeper ADP": "adp_sleeper", "Market rank": "adp_market"}
 

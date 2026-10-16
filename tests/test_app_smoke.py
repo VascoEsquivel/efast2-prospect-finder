@@ -90,8 +90,23 @@ def test_points_mode_and_settings_persist(runtime):
 def test_missing_source_falls_back_to_bundled_data(runtime):
     at = start(runtime, source="espn")
     assert any("FALLBACK" in e.value for e in at.error)
-    assert "LAST-SEASON" in at.caption[0].value
+    assert "2026-27 PROJECTIONS" in at.caption[0].value
     assert metrics(at)["Pick"] == "#1"
+
+
+def test_fresh_install_uses_2026_27_projections(runtime):
+    at = start(runtime)
+    assert "2026-27 PROJECTIONS" in at.caption[0].value
+    options = at.selectbox(key="w_search").options
+    assert len(options) > 600  # projected players plus rookies listed without stats
+    assert any("Tyrese Maxey" in o for o in options)
+
+
+def test_old_default_source_migrates_once(runtime):
+    at = start(runtime, source="last_season")  # saved before projections existed
+    assert "2026-27 PROJECTIONS" in at.caption[0].value
+    at2 = start(runtime, source="last_season", settings_version=2)  # chosen on purpose since then
+    assert "LAST-SEASON" in at2.caption[0].value
 
 
 def test_team_fit_unlocks_after_three_of_my_picks(runtime):

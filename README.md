@@ -26,7 +26,7 @@ You need Python 3.11 or newer ([python.org/downloads](https://www.python.org/dow
 
 Your browser opens http://localhost:8501. Keep the launcher window open while you draft; closing it, or pressing Ctrl+C, stops the app.
 
-The app works with **no network at all**: it starts on the bundled 2025-26 stats, or on synthetic test data if you pick that source.
+The app works with **no network at all**: it starts on the bundled 2026-27 projections. The bundled 2025-26 stats and synthetic test data are also available offline.
 
 <details><summary>Manual setup instead of the launcher</summary>
 
@@ -71,12 +71,13 @@ The header always shows which source is loaded and when it was fetched. The **Da
 
 | Source | What it gives | How to load | Status |
 |---|---|---|---|
-| **Projection CSV** (primary) | Per-game or season projections from any site | Sidebar → Player data → *Projection CSV*, upload, then check the column mapping in the Data tab | Tested |
+| **2026-27 projections (bundled)** | Projections for 556 players built from 3 seasons of real box scores and the 2026-27 rosters (trades, ball share, team style); rookies listed without stats | Default source; no network needed | Backtested (below) |
+| **Projection CSV** | Per-game or season projections from any site | Sidebar → Player data → *Projection CSV*, upload, then check the column mapping in the Data tab | Tested |
 | **ADP CSV** | ADP from Sleeper, ESPN or anywhere else | Sidebar → *ADP / metadata sources* → upload and pick what it is | Tested |
 | **ESPN projections** | 2026-27 projections, ADP, positions, injuries | Data tab → *Fetch ESPN projections + ADP* | Parser tested on documented shape; **verify with the probe** |
 | **Sleeper players** | IDs, positions, injuries, current teams | Data tab → *Refresh Sleeper metadata* (fetched at most once a day) | Parser tested on documented shape; **verify with the probe** |
 | **Sleeper live sync** | Picks from a Sleeper draft, every 5 s | Sidebar → Sleeper draft_id → *Poll picks* | Tested with fixtures; **verify with the probe** |
-| **Last season 2025-26 (bundled)** | Real per-game actuals for 582 players, with 2026-27 teams | Default source; no network needed | Verified |
+| **Last season 2025-26 (bundled)** | Real per-game actuals for 582 players, with 2026-27 teams | Sidebar → Player data | Verified |
 | **Last season via nba_api** | Same season from NBA.com | Data tab → *Refresh last season (nba_api)* | Parser tested; endpoint unverified |
 | **FantasyPros ECR** | Expert consensus *rank* for ESPN points leagues (2026-09-29) | Sidebar → *Use FantasyPros ECR*, then Data tab → fetch | Verified (rank, **not ADP**) |
 | **Synthetic test data** | 300 fake "Test Player NNN" players | Sidebar → Player data | For tests and offline demo only |
@@ -118,6 +119,41 @@ The header always shows which source is loaded and when it was fetched. The **Da
 - **Live sync:** paste the draft_id (the number in the Sleeper draft URL).
   - Before any picks, click *Load teams/rounds from Sleeper*, then set your slot.
   - Turn on *Poll picks every 5 s*. Picks are matched by Sleeper ID (from the metadata refresh), then by name. Sleeper is treated as authoritative if it disagrees with a manual entry.
+
+### Bundled 2026-27 projections
+
+`data/bundled/projections_2026_27.parquet` is built by `build_projections.py` with the model in `projections.py`. It uses only real data: ESPN box scores for 2023-24, 2024-25 and 2025-26 (every regular-season game, with each team's and opponent's totals) and the 2026-27 rosters, both from the sportsdataverse releases.
+
+How each line is built:
+1. **Skill.** The last three seasons, weighted 6/3/1 toward the most recent. Rates are per 100 possessions, so a fast team doesn't inflate them. They're lightly regressed to the position average, then adjusted for age: under 26 improves a little, over 30 declines 1% a year.
+2. **Minutes.** Mostly last season's role, nudged 10% toward 24 a game, since heavy loads rarely repeat. A roster more crowded than a typical team's trims bench minutes first, and first-round rookies get minutes reserved. Roster-based minute shifts turned out to be a weak signal in the backtest, so only a quarter of the shift is applied.
+3. **Ball share.** A team's players can only use 100% of its possessions: summed usage × minutes = 5 players × 100%. When a roster's combined usage is over that budget, everyone gives up the **same number of usage points**. Stars keep most of their shots and role players lose a bigger share. Players losing touches get slightly more efficient. A team under budget hands out touches the same way. Example: Philadelphia (Maxey, Jaylen Brown, Embiid, Edgecombe, LeBron) is the most crowded roster at 108% of its possessions. Maxey goes from 28.3 points last season to a projected 25.1, ranking 4th in 9-cat on steals, threes, FT% and low turnovers. Boston, after losing Brown, is at 90%, so Tatum, White and Pritchard get more shots.
+4. **Team style.** The new team's pace scales counting stats. Assists and rebounds are checked against how much the team moves the ball and rebounds. A shooter joining a heavy three-point team takes more threes. These are mild, because the backtest found them close to neutral.
+
+Every adjustment is written into the **Why** column. Select a row to see the full stat line with the reasons above the table.
+
+**Backtest** (`python backtest_projections.py`): each test season is predicted only from the three seasons before it, using who actually played where. The comparison covers players with 25+ games, about 370 per season. Lower is better for error.
+
+| Predicting | Version | Points error | Minutes error | Rebounds | Assists | 9-cat value rank corr. |
+|---|---|---|---|---|---|---|
+| 2024-25 | last season as-is | 2.33 | 3.91 | 0.82 | 0.64 | 0.838 |
+| 2024-25 | **this model** | **2.18** | **3.69** | **0.76** | **0.60** | **0.846** |
+| 2025-26 | last season as-is | 2.84 | 4.59 | 0.97 | 0.73 | 0.738 |
+| 2025-26 | **this model** | **2.55** | **4.28** | **0.85** | **0.70** | **0.741** |
+
+On teams whose combined usage was 5%+ over or under budget, the roster step cut points error further than the skill-and-age model alone: 2.40 → 2.34 in 2024-25 and 2.69 → 2.59 in 2025-26.
+
+Be honest with yourself about what the backtest says:
+- **Ranking barely improves.** Fantasy value ranking is only slightly better than last season as-is. Most of the gain is in the size of each stat.
+- **Team changes are hard.** For players who changed teams, the roster step helped in 2024-25: points error 2.39 → 2.27. In 2025-26 it was a wash: 2.94 → 2.95, with value ranking slightly worse. Trades are noisy.
+- **Every setting earned its place.** Each one was tuned on both seasons, and a change was kept only if it helped in both.
+
+Limits:
+- **Rookies aren't projected.** 2026 draftees and players with no NBA games are listed so you can enter picks, but with **no stats** (they rank last). The app never invents stats for real players. Use a projection CSV or ESPN if you want rookie projections.
+- **Rosters are as of the file date.** Moves after then aren't included. Sleeper/ESPN metadata can update a player's team label, but the projection still uses the bundled roster.
+- **Positions are approximate** (G/F/C), as with the last-season data.
+
+Rebuild it with `python build_projections.py`, which downloads from GitHub releases. Run that after the rosters file updates.
 
 ### Bundled last-season data
 
@@ -176,7 +212,7 @@ The app makes network calls **only when you click a fetch button** (or poll, whe
 | Sleeper sync errors | It keeps retrying every 5 s; turn it off and enter picks manually. Picks synced so far are already saved. |
 | Sleeper metadata unavailable | Positions fall back to the CSV, ESPN, or approximate G/F/C. |
 | Names don't match between sources | Data tab → *Unmatched names* → add an override (saved to `data/name_overrides.json`). |
-| Everything is down | The bundled 2025-26 data and synthetic data need no network. |
+| Everything is down | The bundled 2026-27 projections, 2025-26 data and synthetic data need no network. |
 
 ## Tests
 
@@ -200,8 +236,11 @@ draft.py             snake order, picks, undo, persistence, Sleeper pick sync (p
 roster.py            slot matcher, team category standings, team-fit weights (pure)
 schema.py            column names, team/position normalization
 probe_endpoints.py   checks every endpoint from your machine
+projections.py       2026-27 projection model: multi-season baseline, minutes, usage budget, team style (pure)
+build_projections.py rebuilds the bundled 2026-27 projections
+backtest_projections.py  scores the model on 2024-25 and 2025-26 against naive "last season"
 build_last_season.py rebuilds the bundled 2025-26 data
-data/bundled/        committed real 2025-26 snapshot
+data/bundled/        committed 2026-27 projections and real 2025-26 snapshot
 data/name_overrides.json
 data/raw/ data/cache/ data/draft_state.json data/settings.json   (runtime, git-ignored)
 ```

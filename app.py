@@ -26,6 +26,7 @@ STATE_PATH = dfm.RUNTIME_DIR / "draft_state.json"
 SETTINGS_PATH = dfm.RUNTIME_DIR / "settings.json"
 
 SOURCES = {
+    "proj_2027": "2026-27 projections (bundled model)",
     "csv": "Projection CSV (upload)",
     "espn": "ESPN projections 2026-27",
     "last_season": "Last season 2025-26 actuals (bundled)",
@@ -34,7 +35,8 @@ SOURCES = {
 }
 ADP_TARGET_LABELS = {"adp_sleeper": "Sleeper ADP", "adp_espn": "ESPN ADP", "adp_market": "Other / market rank"}
 DEFAULT_SETTINGS = {
-    "source": "last_season",
+    "settings_version": 2,
+    "source": "proj_2027",
     "adp_compare": "auto",
     "template": "9-cat",
     "categories": list(val.CATEGORIES),
@@ -73,6 +75,11 @@ def load_settings() -> dict:
         saved = json.loads(SETTINGS_PATH.read_text())
     except (FileNotFoundError, json.JSONDecodeError):
         saved = {}
+    if saved and saved.get("settings_version", 1) < 2:
+        # v2 made the bundled 2026-27 projections the default; move anyone still on the old default.
+        if saved.get("source") == "last_season":
+            saved["source"] = "proj_2027"
+        saved["settings_version"] = 2
     return {**DEFAULT_SETTINGS, **{k: v for k, v in saved.items() if k in DEFAULT_SETTINGS}}
 
 
@@ -150,7 +157,7 @@ def resume_banner() -> None:
 def data_signature(s: dict) -> str:
     """Everything on disk that changes the dataset; part of every cache key."""
     files = [dfm.UPLOAD_DIR / "projections.csv", dfm.UPLOAD_DIR / "adp.csv", dfm.OVERRIDES_PATH,
-             dfm.BUNDLED_LAST_SEASON]
+             dfm.BUNDLED_LAST_SEASON, dfm.BUNDLED_PROJECTIONS]
     files += [dfm.CACHE_DIR / f"{k}.parquet" for k in
               ["espn_projections", "nba_api_last_season", "sleeper_players", "market_rank_ecr"]]
     keys = ["source", "use_sleeper_meta", "use_espn_meta", "use_ecr", "proj_mapping", "proj_season_totals",
@@ -159,6 +166,8 @@ def data_signature(s: dict) -> str:
 
 
 def _load_base(source: str, s: dict):
+    if source == "proj_2027":
+        return dfm.load_projections()
     if source == "last_season":
         return dfm.load_last_season()
     if source == "synthetic":
@@ -188,7 +197,7 @@ def assemble(sig: str, s_json: str):
     metas: list[dfm.SourceMeta] = []
     reports: list[dfm.MatchReport] = []
     base = meta = None
-    for source in [s["source"], "last_season", "synthetic"]:
+    for source in dict.fromkeys([s["source"], "proj_2027", "last_season", "synthetic"]):
         try:
             base, meta = _load_base(source, s)
             if source != s["source"]:
@@ -509,6 +518,8 @@ me = state.settings.my_slot
 badges = []
 if "ACTUALS" in meta.source:
     badges.append(("📅 2025-26 actuals, not projections", "warn"))
+elif meta.kind == "projections":
+    badges.append(("📈 2026-27 projections", "ok"))
 if meta.from_cache:
     badges.append(("⚠ cached snapshot", "warn"))
 adp_label = next((k for k, v in ADP_COLUMNS.items() if v == adp_col), None)
@@ -651,6 +662,8 @@ with tab_room:
         table["Δ"] = view["delta"]
         table["Flag"] = view["flag"].map({"STEAL": "▲ STEAL", "REACH": "▼ REACH"}).fillna("")
         table["Gone by"] = np.where(gone, f"⏳ #{next_mine}", "")
+        if view["proj_notes"].str.len().gt(0).any():
+            table["Why"] = view["proj_notes"]
         # Market columns sit right after the value so STEAL/REACH is visible without scrolling.
         lead = ["Rk", "Player", "Pos", "Z", "Fit", "FP", "Value", "Flag", "ADP", "Δ", "Gone by", "Team", "Inj", "GP"]
         table = table[[c for c in lead if c in table] + [c for c in table if c not in lead]].reset_index(drop=True)
@@ -672,14 +685,21 @@ with tab_room:
             "GP": st.column_config.NumberColumn(format="%d", width="small"),
             "ADP": st.column_config.NumberColumn(format="%.1f", width=56),
             "Δ": st.column_config.NumberColumn(format="%+.0f", width=48),
+            "Why": st.column_config.TextColumn(width="large", help="What moved this 2026-27 projection: new team, "
+                                               "ball share on the new roster, minutes, pace, 3PT system, age"),
             "FP": st.column_config.NumberColumn(format="%.1f"),
             "Value": st.column_config.NumberColumn(format="%+.1f"),
             **{c: st.column_config.NumberColumn(format="%.1f") for c in ["PTS", "REB", "AST", "STL", "BLK", "TO"]},
         })
+        line_slot = st.empty()  # selected player's stat line, above the table so it is seen
         event = st.dataframe(styler, hide_index=True, height=640, column_config=cfg, on_select="rerun", placeholder="",
                              selection_mode="single-row", key=f"avail_{len(state.picks)}_{S['pos_filter']}_{S['order']}")
         rows = event.selection.rows if event is not None else []
         sel_pid = view["player_id"].iloc[rows[0]] if rows else None
+        if sel_pid:
+            line_slot.html(ui.player_line_html(view.iloc[rows[0]], meta.kind == "projections"))
+        else:
+            line_slot.html(ui.player_line_hint(meta.kind == "projections"))
         b1, b2 = st.columns([2, 3])
         b1.button(f"Draft {ss.player_by_id[sel_pid]['name']}" if sel_pid else "Select a row to draft it",
                   type="primary", disabled=sel_pid is None or cur is None, on_click=do_pick, args=(sel_pid,))

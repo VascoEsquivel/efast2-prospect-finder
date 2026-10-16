@@ -1,0 +1,82 @@
+{
+  "source": "2026-27 projections (model: 3 seasons of ESPN box scores + 2026-27 rosters)",
+  "kind": "projections",
+  "built_at": "2026-10-16T23:05:30+00:00",
+  "box_score_seasons": [
+    "2025-26",
+    "2024-25",
+    "2023-24"
+  ],
+  "latest_box_score": "2026-06-13",
+  "players_projected": 556,
+  "players_listed_without_stats": 123,
+  "params": {
+    "season_weights": [
+      6.0,
+      3.0,
+      1.0
+    ],
+    "regress_minutes": 100.0,
+    "pct_prior": [
+      60.0,
+      50.0,
+      30.0
+    ],
+    "team_context": true,
+    "age_effects": true,
+    "usage_alpha": 1.0,
+    "usage_gamma": -1.0,
+    "assist_alpha": 0.25,
+    "rebound_alpha": 0.25,
+    "usage_eff_slope": 0.002,
+    "three_beta": 0.35,
+    "pace_regress": 0.3,
+    "style_regress": 0.5,
+    "minutes_cap": 37.0,
+    "minutes_weights": [
+      3.0,
+      1.0,
+      0.0
+    ],
+    "minutes_mode": "room",
+    "minutes_blend": 0.25,
+    "minutes_relative": true,
+    "minutes_regress": 0.1,
+    "minutes_mean": 24.0,
+    "rookie_minutes": [
+      [
+        3,
+        28.0
+      ],
+      [
+        10,
+        22.0
+      ],
+      [
+        20,
+        16.0
+      ],
+      [
+        30,
+        11.0
+      ],
+      [
+        60,
+        4.0
+      ]
+    ],
+    "rookie_usage": 19.0,
+    "availability_prior": 0.85,
+    "availability_regress": 0.3
+  },
+  "urls": {
+    "player_box_2026": "https://github.com/sportsdataverse/sportsdataverse-data/releases/download/espn_nba_player_boxscores/player_box_2026.parquet",
+    "player_box_2025": "https://github.com/sportsdataverse/sportsdataverse-data/releases/download/espn_nba_player_boxscores/player_box_2025.parquet",
+    "player_box_2024": "https://github.com/sportsdataverse/sportsdataverse-data/releases/download/espn_nba_player_boxscores/player_box_2024.parquet",
+    "team_box_2026": "https://github.com/sportsdataverse/sportsdataverse-data/releases/download/espn_nba_team_boxscores/team_box_2026.parquet",
+    "team_box_2025": "https://github.com/sportsdataverse/sportsdataverse-data/releases/download/espn_nba_team_boxscores/team_box_2025.parquet",
+    "team_box_2024": "https://github.com/sportsdataverse/sportsdataverse-data/releases/download/espn_nba_team_boxscores/team_box_2024.parquet",
+    "rosters": "https://github.com/sportsdataverse/sportsdataverse-data/releases/download/espn_nba_rosters/rosters_2027.parquet",
+    "draft": "https://github.com/sportsdataverse/sportsdataverse-data/releases/download/espn_nba_draft/draft_2026.parquet"
+  }
+}
