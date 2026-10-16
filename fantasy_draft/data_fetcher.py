@@ -33,6 +33,7 @@ RAW_DIR = RUNTIME_DIR / "raw"
 CACHE_DIR = RUNTIME_DIR / "cache"
 UPLOAD_DIR = RAW_DIR / "uploads"
 BUNDLED_LAST_SEASON = DATA_DIR / "bundled" / "last_season_2025_26.parquet"
+BUNDLED_PROJECTIONS = DATA_DIR / "bundled" / "projections_2026_27.parquet"
 OVERRIDES_PATH = DATA_DIR / "name_overrides.json"
 USER_AGENT = "Mozilla/5.0 (fantasy-draft-assistant; personal use)"
 
@@ -120,6 +121,7 @@ def finalize_schema(df: pd.DataFrame, source: str, overrides: dict[str, str] | N
     out["positions"] = [expand_positions(_as_list(p)) for p in out["positions"]]
     out["positions_source"] = out["positions_source"].fillna("").astype(str)
     out["injury_status"] = out["injury_status"].fillna("").astype(str).replace({"None": "", "nan": ""})
+    out["proj_notes"] = out["proj_notes"].fillna("").astype(str).replace({"None": "", "nan": ""})
     for c in STAT_COLS + ["adp_espn", "adp_sleeper", "adp_market"]:
         out[c] = pd.to_numeric(out[c], errors="coerce").astype(float)
     for c in ["espn_id", "sleeper_id"]:
@@ -272,6 +274,30 @@ def load_last_season(path: Path = BUNDLED_LAST_SEASON) -> tuple[pd.DataFrame, So
                       fetched_at=info.get("built_at", ""), origin="ESPN box scores via sportsdataverse "
                       f"({', '.join(info.get('box_score_dates', []))})", n_players=len(out),
                       warnings=["Positions are approximate (ESPN lists only G/F/C). Load Sleeper or ESPN for real eligibility."])
+    return out, meta
+
+
+PROJECTIONS_LABEL = "2026-27 PROJECTIONS (bundled model)"
+
+
+def load_projections(path: Path = BUNDLED_PROJECTIONS) -> tuple[pd.DataFrame, SourceMeta]:
+    """Bundled 2026-27 projections from build_projections.py (3 seasons of box scores + 2026-27 rosters)."""
+    raw = pd.read_parquet(path)
+    try:
+        info = json.loads(path.with_suffix(".meta.json").read_text())
+    except FileNotFoundError:
+        info = {}
+    df = raw.rename(columns={"pos_group": "positions"}).copy()
+    df["positions_source"] = "approx (ESPN G/F/C)"
+    df["injury_status"] = np.where(df.get("on_2026_27_roster", True), "", "unsigned")
+    out = finalize_schema(df, PROJECTIONS_LABEL)
+    n_blank = int(out["MIN"].isna().sum())
+    seasons = ", ".join(info.get("box_score_seasons", []))
+    meta = SourceMeta(source=PROJECTIONS_LABEL, kind="projections", fetched_at=info.get("built_at", ""),
+                      origin=f"ESPN box scores {seasons} + 2026-27 rosters via sportsdataverse", n_players=len(out),
+                      warnings=["Positions are approximate (ESPN lists only G/F/C). Load Sleeper or ESPN for real eligibility.",
+                                f"{n_blank} rookies / players with no NBA games are listed without stats "
+                                "(not projected, so they rank last)."])
     return out, meta
 
 

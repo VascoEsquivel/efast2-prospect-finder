@@ -65,7 +65,7 @@ def main() -> None:
 
 
 def run(args, runtime: Path, port: int, total: int) -> None:
-    players, _ = v.valuate(dfm.load_last_season()[0], v.ValuationSettings(
+    players, _ = v.valuate(dfm.load_projections()[0], v.ValuationSettings(  # the app's default source
         n_teams=args.teams, roster_size=args.rounds, min_gp=10))
     ranked = players.sort_values("rank")["name"].tolist()
     state = lambda: json.loads((runtime / "draft_state.json").read_text())  # noqa: E731

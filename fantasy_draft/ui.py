@@ -176,6 +176,18 @@ CSS = """
 .fda-resume p { color: var(--fda-muted); margin: 0; font-size: 14px; }
 .fda-resume .big { color: var(--fda-ink); font-size: 16px; margin-top: 10px; }
 .fda-resume .big b { color: var(--fda-accent); }
+
+/* Selected-player stat line */
+.fda-line { background: var(--fda-surface); border: 1px solid var(--fda-line); border-left: 3px solid var(--fda-accent);
+  border-radius: 12px; padding: 10px 14px; margin: 4px 0 8px; font-size: 13px; }
+.fda-line .who { font-family: var(--fda-display); font-size: 19px; font-weight: 700; letter-spacing: .03em; }
+.fda-line .who small { color: var(--fda-muted); font-family: inherit; font-size: 13px; font-weight: 600; margin-left: 6px; }
+.fda-line .stats { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 4px 0 2px; }
+.fda-line .stats b { color: var(--fda-ink); font-size: 15px; }
+.fda-line .stats span { color: var(--fda-muted); }
+.fda-line .why { color: var(--fda-muted); margin-top: 4px; }
+.fda-line .why b { color: var(--fda-accent); }
+.fda-line.hint { color: var(--fda-muted); border-left-color: var(--fda-line); }
 </style>
 """
 
@@ -355,3 +367,35 @@ def name_size(last: str) -> str:
 def resume_html(n_picks: int, n_teams: int, when: str) -> str:
     return (f'<div class="fda-resume"><h2>Welcome back</h2><p>Your draft was saved automatically.</p>'
             f'<p class="big"><b>{n_picks}</b> picks · <b>{n_teams}</b> teams · last saved {esc(when)}</p></div>')
+
+
+def player_line_html(p, projected: bool) -> str:
+    """Stat line for the selected row, with the reasons behind a projection."""
+    def num(key):
+        try:
+            v = float(p.get(key))
+        except (TypeError, ValueError):
+            return None
+        return v if math.isfinite(v) else None
+
+    label = "2026-27 projection" if projected else "per game"
+    cells = []
+    for key, fmt in [("PTS", "{:.1f}"), ("REB", "{:.1f}"), ("AST", "{:.1f}"), ("3PM", "{:.1f}"), ("STL", "{:.1f}"),
+                     ("BLK", "{:.1f}"), ("TO", "{:.1f}"), ("MIN", "{:.1f}"), ("GP", "{:.0f}")]:
+        v = num(key)
+        if v is not None:
+            cells.append(f"<div><b>{fmt.format(v)}</b> <span>{key}</span></div>")
+    for pct, makes, att in [("FG%", "FGM", "FGA"), ("FT%", "FTM", "FTA")]:
+        m, a = num(makes), num(att)
+        if m is not None and a:
+            cells.append(f"<div><b>{m / a:.3f}</b> <span>{pct}</span></div>")
+    stats = "".join(cells) or '<div><span>No stats in this data source.</span></div>'
+    notes = str(p.get("proj_notes") or "").strip()
+    why = f'<div class="why"><b>Why:</b> {esc(notes)}</div>' if notes else ""
+    return (f'<div class="fda-line"><div class="who">{esc(p.get("name"))}<small>{esc(p.get("team"))} · {label}</small></div>'
+            f'<div class="stats">{stats}</div>{why}</div>')
+
+
+def player_line_hint(projected: bool) -> str:
+    extra = " and why it moved (new team, ball share, minutes, pace, age)" if projected else ""
+    return f'<div class="fda-line hint">Select a row to see the full stat line{extra}.</div>'
