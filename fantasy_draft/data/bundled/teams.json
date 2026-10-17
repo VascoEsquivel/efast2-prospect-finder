@@ -1,0 +1,155 @@
+{
+ "_source": "ESPN team colors and logo URLs from sportsdataverse rosters_2027.parquet",
+ "teams": {
+  "ATL": {
+   "name": "Atlanta Hawks",
+   "color": "#c8102e",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/atl.png"
+  },
+  "BKN": {
+   "name": "Brooklyn Nets",
+   "color": "#000000",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/bkn.png"
+  },
+  "BOS": {
+   "name": "Boston Celtics",
+   "color": "#008348",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/bos.png"
+  },
+  "CHA": {
+   "name": "Charlotte Hornets",
+   "color": "#008ca8",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/cha.png"
+  },
+  "CHI": {
+   "name": "Chicago Bulls",
+   "color": "#ce1141",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/chi.png"
+  },
+  "CLE": {
+   "name": "Cleveland Cavaliers",
+   "color": "#860038",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/cle.png"
+  },
+  "DAL": {
+   "name": "Dallas Mavericks",
+   "color": "#0064b1",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/dal.png"
+  },
+  "DEN": {
+   "name": "Denver Nuggets",
+   "color": "#0e2240",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/den.png"
+  },
+  "DET": {
+   "name": "Detroit Pistons",
+   "color": "#1d428a",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/det.png"
+  },
+  "GSW": {
+   "name": "Golden State Warriors",
+   "color": "#fdb927",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/gs.png"
+  },
+  "HOU": {
+   "name": "Houston Rockets",
+   "color": "#ce0e2d",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/hou.png"
+  },
+  "IND": {
+   "name": "Indiana Pacers",
+   "color": "#0c2340",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/ind.png"
+  },
+  "LAC": {
+   "name": "LA Clippers",
+   "color": "#12173f",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/lac.png"
+  },
+  "LAL": {
+   "name": "Los Angeles Lakers",
+   "color": "#552583",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/lal.png"
+  },
+  "MEM": {
+   "name": "Memphis Grizzlies",
+   "color": "#5d76a9",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/mem.png"
+  },
+  "MIA": {
+   "name": "Miami Heat",
+   "color": "#98002e",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/mia.png"
+  },
+  "MIL": {
+   "name": "Milwaukee Bucks",
+   "color": "#00471b",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/mil.png"
+  },
+  "MIN": {
+   "name": "Minnesota Timberwolves",
+   "color": "#266092",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/min.png"
+  },
+  "NOP": {
+   "name": "New Orleans Pelicans",
+   "color": "#0a2240",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/no.png"
+  },
+  "NYK": {
+   "name": "New York Knicks",
+   "color": "#1d428a",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/ny.png"
+  },
+  "OKC": {
+   "name": "Oklahoma City Thunder",
+   "color": "#007ac1",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/okc.png"
+  },
+  "ORL": {
+   "name": "Orlando Magic",
+   "color": "#0150b5",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/orl.png"
+  },
+  "PHI": {
+   "name": "Philadelphia 76ers",
+   "color": "#1d428a",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/phi.png"
+  },
+  "PHX": {
+   "name": "Phoenix Suns",
+   "color": "#29127a",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/phx.png"
+  },
+  "POR": {
+   "name": "Portland Trail Blazers",
+   "color": "#e03a3e",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/por.png"
+  },
+  "SAC": {
+   "name": "Sacramento Kings",
+   "color": "#5a2d81",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/sac.png"
+  },
+  "SAS": {
+   "name": "San Antonio Spurs",
+   "color": "#000000",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/sa.png"
+  },
+  "TOR": {
+   "name": "Toronto Raptors",
+   "color": "#d91244",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/tor.png"
+  },
+  "UTA": {
+   "name": "Utah Jazz",
+   "color": "#4e008e",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/utah.png"
+  },
+  "WAS": {
+   "name": "Washington Wizards",
+   "color": "#e31837",
+   "logo": "https://a.espncdn.com/i/teamlogos/nba/500/wsh.png"
+  }
+ }
+}
