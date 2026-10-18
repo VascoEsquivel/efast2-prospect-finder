@@ -29,6 +29,7 @@ NEED_SHIFT = 0.5        # peak leverage when slightly behind the field (in units
 WAIT_WEIGHT = 0.5       # how much of the "value lost by waiting" is added to a player's score
 SLOT_WEIGHT = 0.4
 EXPECTATION_DEPTH = 40  # players per position used for the expected best-at-next-pick
+LONG_SHOT = 0.7         # need weight below this: far behind, more of the category barely moves the standings
 
 
 @dataclass
@@ -60,11 +61,13 @@ def pick_plan(cur: int | None, my_slot: int, n_teams: int, n_rounds: int, filled
     mine = [p for p in draft.picks_for_team(my_slot, n_teams, n_rounds) if p >= cur and p not in filled]
     if not mine:
         return PickPlan(None, None, False, 0, 0, 0)
-    now = mine[0]
-    following = mine[1] if len(mine) > 1 else None
-    open_picks = [p for p in range(cur, (following or now) + 1) if p not in filled]
-    before_now = sum(1 for p in open_picks if p < now)
-    before_following = sum(1 for p in open_picks if p < following and p != now) if following else before_now
+    now, own = mine[0], set(mine)
+    # Back-to-back picks at the snake turn are one decision: "waiting" means until my first later pick
+    # that other teams pick before.
+    following = next((p for p in mine[1:] if any(q not in filled and q not in own for q in range(now + 1, p))), None)
+    others = [p for p in range(cur, (following or now) + 1) if p not in filled and p not in own]
+    before_now = sum(1 for p in others if p < now)
+    before_following = sum(1 for p in others if p < following) if following else before_now
     return PickPlan(now, following, now == cur, before_now, before_following, len(mine))
 
 
@@ -98,11 +101,17 @@ def category_weights(table: pd.DataFrame | None, me: int, cats: list[str], punts
 
 # ── Signal 2: who is still there at my next pick ──────────────────────────────
 
-def market_order(avail: pd.DataFrame) -> pd.Series:
-    """0-based position in the order other teams are expected to draft (ADP if mostly known, else rank)."""
+def market_order(avail: pd.DataFrame, cats=()) -> pd.Series:
+    """0-based position in the order other teams are expected to draft (ADP if mostly known, else value).
+
+    Without ADP the fallback ignores my punts (sum of every category's z-score): the other managers
+    aren't punting what I punt, which is exactly why my punt targets slide.
+    """
     adp = pd.to_numeric(avail.get("adp"), errors="coerce") if "adp" in avail else pd.Series(np.nan, index=avail.index)
     rank = pd.to_numeric(avail["rank"], errors="coerce").fillna(1e6)
-    key = adp.fillna(1000 + rank) if adp.notna().sum() >= 30 else rank
+    zc = [f"Z_{c}" for c in cats if f"Z_{c}" in avail]
+    neutral = -avail[zc].fillna(0.0).sum(axis=1) if zc else rank
+    key = adp.fillna(1000 + rank) if adp.notna().sum() >= 30 else neutral
     order = key.rank(method="first") - 1
     return order.astype(float)
 
@@ -113,7 +122,7 @@ def availability(market: pd.Series, k: int) -> pd.Series:
         return pd.Series(1.0, index=market.index)
     sigma = 1.5 + 0.18 * market
     x = (market + 0.5 - k) / sigma
-    return pd.Series(0.5 * (1 + np.vectorize(math.erf)(x / math.sqrt(2))), index=market.index)
+    return pd.Series(0.5 * (1 + np.vectorize(math.erf, otypes=[float])(x / math.sqrt(2))), index=market.index)
 
 
 def _expected_best(values: np.ndarray, probs: np.ndarray, floor: float) -> float:
@@ -127,7 +136,8 @@ def _expected_best(values: np.ndarray, probs: np.ndarray, floor: float) -> float
 
 def wait_costs(score: pd.Series, positions: pd.Series, avail_next: pd.Series,
                avail_now: pd.Series | None = None) -> tuple[pd.Series, dict[str, float]]:
-    """Per player: value lost if I skip him now and take the best at his easiest position later.
+    """Per player: value lost if I skip him now (he may still be there later, with his own chance of
+    lasting) and take the best I can expect at his easiest position at my following pick.
 
     Also returns, per position, the drop from the expected best at the pick I'm making (the best
     available, if I'm on the clock) to the expected best at my following pick.
@@ -145,15 +155,10 @@ def wait_costs(score: pd.Series, positions: pd.Series, avail_next: pd.Series,
         exp_all = _expected_best(vals, probs, floor)
         now_probs = np.ones(len(vals)) if avail_now is None else avail_now.reindex(top.index).fillna(1.0).to_numpy()
         by_pos[pos] = float(_expected_best(vals, now_probs, floor) - exp_all)
-        for i, pid in enumerate(top.index):  # leaving this player out changes the expectation
-            d = float(vals[i] - _expected_best(np.delete(vals, i), np.delete(probs, i), floor))
-            if d < drop[pid]:
-                drop[pid], drop_pos[pid] = d, pos
-        rest = elig.index[EXPECTATION_DEPTH:]
-        d_rest = elig[rest] - exp_all
-        better = d_rest < drop[rest]
-        drop[rest[better]] = d_rest[better]
-        drop_pos[rest[better]] = pos
+        d_all = elig - exp_all
+        better = d_all < drop[elig.index]
+        drop[elig.index[better]] = d_all[better]
+        drop_pos[elig.index[better]] = pos
     drop[np.isinf(drop)] = 0.0
     drop.attrs["pos"] = drop_pos
     return drop, by_pos
@@ -168,14 +173,21 @@ def recommend(avail: pd.DataFrame, plan: PickPlan, *, my_players: list[dict], st
 
     avail: valued players indexed by player_id (value, rank, adp, positions, name, team, Z_<cat>, MIN).
     """
-    pool = avail[avail["MIN"].notna() & avail["value"].notna()] if "MIN" in avail else avail[avail["value"].notna()]
+    has_min = "MIN" in avail and avail["MIN"].notna().any()  # a CSV without minutes still has stats
+    pool = avail[avail["value"].notna() & (avail["MIN"].notna() if has_min else True)]
     weights = {} if is_points else category_weights(table, me, cats, punts, n_rounds)
+    current = roster.assign_roster(my_players, starters)
+    open_slots = [slot for slot, p in current.starters if p is None]
+    if pool.empty:
+        empty = pd.DataFrame(columns=["name", "need", "wait", "slot", "fills", "score", "p_now", "p_next", "market",
+                                      "wait_pos", "order_key", "gone_by_next"])
+        return Recommendation(plan, weights, empty, [], [], {}, open_slots)
     if is_points or not cats:
         need = pool["value"].astype(float)
     else:
         need = sum(w * pool[f"Z_{c}"].fillna(0.0) for c, w in weights.items() if w and f"Z_{c}" in pool)
         need = need if isinstance(need, pd.Series) else pd.Series(0.0, index=pool.index)
-    market = market_order(pool)
+    market = market_order(pool, [] if is_points else cats)
     p_now = availability(market, plan.before_now)
     if plan.following:
         p_next = availability(market, plan.before_following)
@@ -184,8 +196,6 @@ def recommend(avail: pd.DataFrame, plan: PickPlan, *, my_players: list[dict], st
         p_next = pd.Series(0.0, index=pool.index)
         drop, by_pos = pd.Series(0.0, index=pool.index), {}
 
-    current = roster.assign_roster(my_players, starters)
-    open_slots = [slot for slot, p in current.starters if p is None]
     pressure = len(open_slots) / max(1, plan.my_picks_left) if open_slots else 0.0
     fills_cache: dict[tuple, bool] = {}
 
@@ -196,30 +206,34 @@ def recommend(avail: pd.DataFrame, plan: PickPlan, *, my_players: list[dict], st
             fills_cache[key] = trial.filled > current.filled
         return fills_cache[key]
 
-    fill = pool["positions"].map(fills)
+    # Trial rosters only matter when a slot is open; the exact matcher also caps at 20 players.
+    fill = (pool["positions"].map(fills) if open_slots and len(my_players) < 20
+            else pd.Series(False, index=pool.index))
     slot_adj = np.where(fill, SLOT_WEIGHT * pressure, -SLOT_WEIGHT * pressure) if open_slots else 0.0
     score = need + WAIT_WEIGHT * drop.clip(lower=0) + slot_adj
     scores = pd.DataFrame({"name": pool["name"], "need": need, "wait": drop, "slot": slot_adj, "fills": fill,
                            "score": score, "p_now": p_now, "p_next": p_next, "market": market,
                            "wait_pos": drop.attrs.get("pos", pd.Series("", index=pool.index))})
-    # List order: players likely to last to my pick first, then by score.
-    scores["order_key"] = scores["score"] - np.where(plan.on_clock | (scores["p_now"] >= 0.5), 0.0, 1000.0)
+    scores["order_key"] = scores["score"]  # list order; likely-gone players stay in place, flagged instead
+    # "Usually gone before your next pick": before my turn that is the pick I'm planning for.
+    scores["gone_by_next"] = (scores["p_next"] < 0.5) if plan.on_clock else (scores["p_now"] < 0.5)
     usable = scores if plan.on_clock else scores[scores["p_now"] >= 0.5]  # planning ahead: likely to last
     best = usable.sort_values(["score", "name"], ascending=[False, True]).head(top_n)
     contenders = scores.sort_values("score", ascending=False).head(25)
     slot_matters = bool(open_slots) and not contenders["fills"].all()
     trailing = _trailing(table, me, cats, punts, weights)
     top = [_explain(pid, row, pool, trailing, plan, by_pos, need, slot_matters) for pid, row in best.iterrows()]
-    gaps = [] if is_points or table is None else _gaps(pool, table, me, cats, punts, weights)
+    gaps = [] if is_points or table is None else _gaps(pool, table, me, cats, punts, weights,
+                                                         p_now=None if plan.on_clock else p_now)
     return Recommendation(plan, weights, scores, top, gaps, by_pos, open_slots)
 
 
 def _trailing(table: pd.DataFrame | None, me: int, cats: list[str], punts, weights: dict[str, float]) -> list[str]:
-    """Categories where my team sits in the bottom half and adding more still pays (weight >= 1)."""
+    """Categories where my team sits in the bottom half and isn't a long shot (same cutoff as the gaps list)."""
     if table is None or me not in table.index or table.loc[me, "players"] == 0:
         return []
     half = len(table) / 2
-    return [c for c in cats if c not in punts and weights.get(c, 0) >= 1.0 and int(table.loc[me, f"{c}_rank"]) > half]
+    return [c for c in cats if c not in punts and weights.get(c, 0) >= LONG_SHOT and int(table.loc[me, f"{c}_rank"]) > half]
 
 
 def _explain(pid, row, pool: pd.DataFrame, trailing: list[str], plan: PickPlan,
@@ -253,13 +267,15 @@ def _explain(pid, row, pool: pd.DataFrame, trailing: list[str], plan: PickPlan,
 
 
 def _gaps(pool: pd.DataFrame, table: pd.DataFrame, me: int, cats: list[str], punts, weights: dict[str, float],
-          n: int = 3) -> list[dict]:
-    """Weakest non-punted categories (by rank) and the best available contributor in each."""
+          n: int = 3, p_now: pd.Series | None = None) -> list[dict]:
+    """Weakest non-punted categories (by rank) and the best contributor likely there at my pick."""
     if me not in table.index or table.loc[me, "players"] == 0:
         return []
     live = [c for c in cats if c not in punts and f"Z_{c}" in pool]
     ranked = sorted(live, key=lambda c: (-int(table.loc[me, f"{c}_rank"]), -weights.get(c, 1.0)))
     worth = pool[pool["value"] >= pool["value"].nlargest(80).min()] if len(pool) > 80 else pool
+    if p_now is not None:  # planning ahead: only players likely to last to my pick
+        worth = worth[p_now.reindex(worth.index).fillna(1.0) >= 0.5]
     out = []
     for c in ranked[:n]:
         if int(table.loc[me, f"{c}_rank"]) <= max(1, len(table) // 3):
@@ -272,5 +288,5 @@ def _gaps(pool: pd.DataFrame, table: pd.DataFrame, me: int, cats: list[str], pun
                     "name": worth.at[pid, "name"], "team": worth.at[pid, "team"] if "team" in worth else "",
                     "z": float(worth.at[pid, f"Z_{c}"]),
                     # Far behind with few picks left: more of it barely moves the standings.
-                    "long_shot": weights.get(c, 1.0) < 0.7})
+                    "long_shot": weights.get(c, 1.0) < LONG_SHOT})
     return out

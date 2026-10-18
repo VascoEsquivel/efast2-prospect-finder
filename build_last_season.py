@@ -79,7 +79,14 @@ def aggregate(box: pd.DataFrame, rosters: pd.DataFrame) -> pd.DataFrame:
         "FGA": g["field_goals_attempted"].mean(),
         "FTM": g["free_throws_made"].mean(),
         "FTA": g["free_throws_attempted"].mean(),
-    }).reset_index().rename(columns={"athlete_id": "espn_id"})
+        "OREB": g["offensive_rebounds"].mean(),
+    })
+    # Points-league extras: share of games with a double-double, triple-double or big-game bonus.
+    tens = (played[["points", "rebounds", "assists", "steals", "blocks"]] >= 10).sum(axis=1)
+    events = pd.DataFrame({"DD": tens >= 2, "TD": tens >= 3, "PTS40": played["points"] >= 40,
+                           "PTS50": played["points"] >= 50, "AST15": played["assists"] >= 15,
+                           "REB20": played["rebounds"] >= 20})
+    out = out.join(events.groupby(played["athlete_id"]).mean()).reset_index().rename(columns={"athlete_id": "espn_id"})
 
     r = rosters.copy()
     r["athlete_id"] = r["athlete_id"].astype("int64")

@@ -178,7 +178,12 @@ Rebuild it with `python build_last_season.py`, which downloads from GitHub relea
 - **FG% / FT%:** the league rate is ΣFGM/ΣFGA over the pool. Impact = FGM − lg% × FGA, which is 0 for a league-average shooter, and that impact is what gets z-scored.
 - **Punts:** a punted category gets multiplier 0. It's still shown (column suffix `·p`) but adds nothing to Z_total.
 - **Stat mode:** *season totals* multiplies every counting stat and every make/attempt by GP.
-- **Points leagues:** fantasy points use editable weights, prefilled with ESPN's default H2H scoring (PTS 1, 3PM 1, FGM 2, FGA −1, FTM 1, FTA −1, REB 1, AST 2, STL 4, BLK 4, TO −2). Value = FP − the FP of the (N×R+1)th best player.
+- **Points leagues:** pick a *Scoring preset* in the sidebar, then edit any value (it becomes *Custom*). Value = FP − the FP of the (N×R+1)th best player.
+  - **ESPN default:** PTS 1, 3PM 1, FGM 2, FGA −1, FTM 1, FTA −1, REB 1, AST 2, STL 4, BLK 4, TO −2.
+  - **Sleeper (your league):** PTS 0.5, 3PM 0.5, REB 1, offensive REB +0.5 extra, AST 1, STL 2, BLK 2, TO −1, double-double 1, triple-double 2, 40+ points 2, 50+ points 2 more, 15+ assists 1, 20+ rebounds 2, technical foul −2, flagrant foul −2.
+  - **Game-level stats.** Double-/triple-doubles and the big-game bonuses are projected per game from real game logs. Each of a player's games from the last three seasons is scaled halfway toward the player's 2026-27 projection, and the rate is the share of those games that clears the bar. So a player whose shots get squeezed on a new team also gets fewer 40-point games. A triple-double also counts as a double-double, as in NBA stats.
+  - **Backtest.** Predicting 2024-25 and 2025-26 from earlier seasons, the bonus points per game were about as accurate as copying last season in 2024-25 (mean error 0.062 either way) and better in 2025-26 (0.058 vs 0.065). The rare big games are hard to call: for the 60 players with the most bonus points, the typical miss is about 0.2 FP a game.
+  - **Not projected:** technical and flagrant fouls. The box scores only record them per team, so they count 0 for everyone (a few hot-heads lose roughly 0.2-0.4 FP a game). The app says so under the list when your scoring uses them.
 - **ADP:** Δ = ADP − my rank, so positive means value.
   - 🟢 STEAL if Δ ≥ max(3, 0.15 × ADP); 🔴 REACH if Δ ≤ −max(3, 0.15 × ADP). Both numbers are configurable.
   - ⏳ marks available players whose ADP is earlier than your next pick (if you're on the clock, the pick after this one).

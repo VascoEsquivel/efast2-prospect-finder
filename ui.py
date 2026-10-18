@@ -507,7 +507,10 @@ CSS = """
 .bc-rec-main .bc-av { grid-row: span 2; }
 .bc-rec-main .nm { font: 600 15px/1 var(--bc-cond); color: #C9CFDB; letter-spacing: .04em; text-transform: uppercase;
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bc-rec-main .nm b { display: block; font: 900 30px/.95 var(--bc-display); color: var(--bc-ink); letter-spacing: .01em; }
+.bc-rec-main .nm b { display: block; font: 900 30px/.95 var(--bc-display); color: var(--bc-ink); letter-spacing: .01em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bc-rec-main .nm b.long { font-size: 24px; }
+.bc-rec .bc-card-hd .t { white-space: normal; line-height: 1; }
 .bc-rec-main .mt { font: 600 12px/1 var(--bc-cond); letter-spacing: .08em; color: var(--bc-muted); text-transform: uppercase; }
 .bc-rec-why { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
 .bc-rec-why li { font: 500 13.5px/1.25 var(--bc-body); color: #D5DAE4; padding-left: 16px; position: relative; }
@@ -536,6 +539,12 @@ CSS = """
 .bc-wait .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--wc, var(--bc-muted)); }
 .bc-wait .v { font: 700 12.5px/1 var(--bc-cond); text-align: right; color: var(--bc-muted); font-variant-numeric: tabular-nums; }
 .bc-wait.hot .v { color: var(--bc-gold); }
+.bc-rec-side.narrow { display: none; }
+.bc-rec-side.narrow summary { cursor: pointer; font: 800 12px/1 var(--bc-cond); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--bc-gold); padding: 6px 0; list-style: none; }
+.bc-rec-side.narrow summary::before { content: "▸ "; }
+.bc-rec-side.narrow[open] summary::before { content: "▾ "; }
+.bc-rec-side.narrow[open] { gap: 12px; }
 .bc-wait-mini { display: none; font: 700 13px/1.4 var(--bc-cond); letter-spacing: .05em; color: var(--bc-muted); }
 .bc-wait-mini b { color: var(--bc-ink); font-variant-numeric: tabular-nums; }
 .bc-wait-mini .hot, .bc-wait-mini .hot b { color: var(--bc-gold); }
@@ -544,6 +553,9 @@ CSS = """
   .bc-rec-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; padding-left: 12px; padding-right: 12px; }
   .bc-wait { display: none; }
   .bc-wait-mini { display: block; }
+  .bc-rec-side.wide { display: none; }
+  .bc-rec-side.narrow { display: flex; }
+  .bc-rec-alt { margin-top: 8px; }
   .bc-rec-why li:nth-child(n+4) { display: none; }
   .bc-rec .bc-card-hd .t { font-size: 19px; }
   .bc-rec-main .nm b { font-size: 26px; }
@@ -564,6 +576,10 @@ CSS = """
 @container listbar (max-width: 600px) {
   .st-key-listbar [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; row-gap: 10px !important; }
   .st-key-listbar [data-testid="stColumn"] { flex: 1 1 100% !important; width: 100% !important; min-width: 100% !important; }
+}
+@container listbar (max-width: 330px) {  /* very narrow list column (sidebar open on a ~900px screen): phone-size pills */
+  .st-key-w_pos button[data-variant="segmented_control"] { padding: 0 7px; }
+  .st-key-w_pos button[data-variant="segmented_control"] p { font-size: 13px; letter-spacing: .03em; }
 }
 
 /* ── Phones ── */
@@ -598,6 +614,11 @@ CSS = """
   .st-key-w_pos button[data-variant="segmented_control"] { padding: 0 8px; min-height: 36px; flex: none; }
   .st-key-w_pos button[data-variant="segmented_control"] p { font-size: 13px; letter-spacing: .04em; }
   .st-key-listbar [data-testid="stSelectbox"] [role="group"] { min-height: 36px; }
+  .st-key-recbox [data-testid="stHorizontalBlock"] { padding: 0 12px 12px; }
+  .st-key-recbox [data-testid="stColumn"] { flex: 1 1 calc(50% - 4px) !important; width: auto !important; }
+  .st-key-recbox [data-testid="stColumn"]:first-child { flex-basis: 100% !important; }
+  .st-key-recbox button { width: 100%; padding: 4px 10px !important; }
+  .st-key-recbox button p { font-size: 13.5px !important; letter-spacing: .08em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bc-resume h2 { font-size: 46px !important; }
   .bc-board { min-width: 900px; }
 }
@@ -786,6 +807,12 @@ def logo_html(nba_team: str, size: int = 16) -> str:
 
 def fantasy_chip(name: str, slot: int, me: int) -> str:
     return f'<span class="bc-ft" style="--c:{fantasy_color(slot, me)}">{esc(monogram(name, slot))}</span>'
+
+
+def short_label(name: str) -> str:
+    """'K. George': first initial + last name, so two players who share a last name stay distinct."""
+    first, last = split_name(name)
+    return f"{first[0]}. {last}" if first else last
 
 
 def split_name(name: str) -> tuple[str, str]:
@@ -1018,11 +1045,11 @@ def recommend_html(rec, n_teams: int, team_label: str) -> str:
     first, last = split_name(t["name"])
     tc, _ = team_colors(t.get("team", ""))
     why = "".join(f"<li>{esc(r)}</li>" for r in t["reasons"][:4])
-    alts = "".join(f'<span><b>{esc(split_name(a["name"])[1] or a["name"])}</b> {esc("/".join(a["positions"]))}</span>'
+    alts = "".join(f'<span><b>{esc(short_label(a["name"]))}</b> {esc("/".join(a["positions"]))}</span>'
                    for a in rec.top[1:3])
     main = (f'<div><div class="bc-rec-main" style="--tc:{tc}">'
             f'{avatar_html(t["name"], t.get("team", ""), t["player_id"], None, 52)}'
-            f'<span class="nm">{esc(first)}<b>{esc(last)}</b></span>'
+            f'<span class="nm">{esc(first)}<b{" class=long" if len(last) > 12 else ""}>{esc(last)}</b></span>'
             f'<span class="mt">{esc(t.get("team", ""))} · {esc("/".join(t["positions"]) or "?")}</span></div>'
             f'<ul class="bc-rec-why">{why}</ul>'
             + (f'<div class="bc-rec-alt"><span class="k">Also</span>{alts}</div>' if alts else "") + '</div>')
@@ -1032,12 +1059,12 @@ def recommend_html(rec, n_teams: int, team_label: str) -> str:
         for g in rec.gaps:
             rows.append(f'<div class="bc-need" style="--tier:{tier_color(g["rank"], g["of"])}"><span class="c">{esc(g["cat"])}</span>'
                         f'<span class="r">{g["rank"]}<sup>{ordinal(g["rank"])}</sup></span>'
-                        f'<span class="w">Best: <b>{esc(split_name(g["name"])[1] or g["name"])}</b> <span class="z">{g["z"]:+.1f}</span></span>'
+                        f'<span class="w">Best: <b>{esc(short_label(g["name"]))}</b> <span class="z">{g["z"]:+.1f}</span></span>'
                         + ('<span class="ls">Long shot</span>' if g.get("long_shot") else "<span></span>") + '</div>')
         side.append(f'<div><span class="k">Your weakest categories</span>{"".join(rows)}</div>')
     if rec.wait_cost and plan.following:
         top = max(rec.wait_cost.values()) or 1.0
-        hot = sorted(rec.wait_cost, key=rec.wait_cost.get, reverse=True)[:1]
+        hot = [pos for pos, v in rec.wait_cost.items() if v >= top - 0.05]  # ties (PG/SG share players) all light up
         bars = "".join(
             f'<div class="bc-wait{" hot" if pos in hot and v >= 0.5 else ""}" style="--wc:{GOLD if pos in hot and v >= 0.5 else NEUTRAL}">'
             f'<span>{pos}</span><span class="bar"><i style="width:{max(0.0, v) / top * 100:.0f}%"></i></span>'
@@ -1046,5 +1073,8 @@ def recommend_html(rec, n_teams: int, team_label: str) -> str:
                            for pos, v in rec.wait_cost.items())
         side.append(f'<div><span class="k">Value lost by waiting until #{plan.following}</span>{bars}'
                     f'<div class="bc-wait-mini">{chips}</div></div>')
-    side_html = f'<div class="bc-rec-side">{"".join(side)}</div>' if side else "<div></div>"
+    # Phones get the same panels folded away (summary line), so the list starts sooner.
+    side_html = (f'<div class="bc-rec-side wide">{"".join(side)}</div>'
+                 f'<details class="bc-rec-side narrow"><summary>Team needs &amp; position timing</summary>{"".join(side)}</details>'
+                 if side else "<div></div>")
     return f'<div class="bc-card bc-rec" style="--c:{GOLD}">{head}<div class="bc-rec-grid">{main}{side_html}</div></div>'

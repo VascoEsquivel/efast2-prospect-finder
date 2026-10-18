@@ -35,7 +35,7 @@ HERE = Path(__file__).resolve().parent
 RAW_DIR = HERE / "data" / "raw" / "sportsdataverse"
 OUT = HERE / "data" / "bundled" / "projections_2026_27.parquet"
 SEASON_MIDPOINT = pd.Timestamp("2027-02-01")  # ages are taken mid-season
-STAT_OUT = ["GP", "MIN", "PTS", "REB", "AST", "3PM", "STL", "BLK", "TO", "FGM", "FGA", "FTM", "FTA"]
+STAT_OUT = ["GP", "MIN", "PTS", "REB", "AST", "3PM", "STL", "BLK", "TO", "FGM", "FGA", "FTM", "FTA", "OREB"]
 DIAGNOSTICS = ["USG", "usg_factor", "team_usage_load", "ast_factor", "reb_factor", "three_factor", "pace_new",
                "top_teammates", "last_team", "moved", "age"]
 
@@ -75,6 +75,8 @@ def build(data: dict[str, pd.DataFrame], params: pj.ProjectionParams = pj.Projec
     base = pj.baseline(lines, ages, params)
     proj = pj.project(base, ros[["athlete_id", "team"]], pj.team_styles(logs[SEASONS[0]]), rookies, params)
     out = proj[["name", "team", "pos_group", *STAT_OUT, *DIAGNOSTICS, "proj_notes"]].copy()
+    # Points-league extras: double-doubles, triple-doubles and big-game bonuses per game.
+    out = out.join(pj.event_rates([logs[y] for y in SEASONS], proj))
     out["projected"] = True
     # Roster position groups are newer than box-score ones.
     pos = ros.set_index("athlete_id")["position_abbreviation"]

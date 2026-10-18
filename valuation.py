@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from schema import EXTRA_STATS
+
 CATEGORIES = ["FG%", "FT%", "3PM", "PTS", "REB", "AST", "STL", "BLK", "TO"]
 PCT_CATS = {"FG%": ("FGM", "FGA"), "FT%": ("FTM", "FTA")}
 INVERTED = {"TO"}
@@ -23,7 +25,20 @@ ESPN_DEFAULT_POINTS = {
     "PTS": 1.0, "3PM": 1.0, "FGM": 2.0, "FGA": -1.0, "FTM": 1.0, "FTA": -1.0,
     "REB": 1.0, "AST": 2.0, "STL": 4.0, "BLK": 4.0, "TO": -2.0,
 }
-SCALED_STATS = ["MIN", "PTS", "REB", "AST", "3PM", "STL", "BLK", "TO", "FGM", "FGA", "FTM", "FTA"]
+# Points presets. Keys are per-game stat columns (see schema.EXTRA_STATS for DD, TD and the bonuses).
+SLEEPER_LEAGUE_POINTS = {
+    "PTS": 0.5, "3PM": 0.5, "REB": 1.0, "OREB": 0.5, "AST": 1.0, "STL": 2.0, "BLK": 2.0, "TO": -1.0,
+    "DD": 1.0, "TD": 2.0, "PTS40": 2.0, "PTS50": 2.0, "AST15": 1.0, "REB20": 2.0, "TECH": -2.0, "FLAG": -2.0,
+}
+POINTS_PRESETS = {"ESPN default": ESPN_DEFAULT_POINTS, "Sleeper (your league)": SLEEPER_LEAGUE_POINTS}
+POINT_STAT_LABELS = {
+    "PTS": "Points", "3PM": "3-pointers made", "FGM": "Field goals made", "FGA": "Field goals attempted",
+    "FTM": "Free throws made", "FTA": "Free throws attempted", "REB": "Rebounds", "OREB": "Off. rebounds (extra)",
+    "AST": "Assists", "STL": "Steals", "BLK": "Blocks", "TO": "Turnovers", "DD": "Double-double",
+    "TD": "Triple-double", "PTS40": "40+ points bonus", "PTS50": "50+ points bonus", "AST15": "15+ assists bonus",
+    "REB20": "20+ rebounds bonus", "TECH": "Technical foul", "FLAG": "Flagrant foul",
+}
+SCALED_STATS = ["MIN", "PTS", "REB", "AST", "3PM", "STL", "BLK", "TO", "FGM", "FGA", "FTM", "FTA", *EXTRA_STATS]
 NEEDED_STATS = ["GP", *SCALED_STATS]
 
 
