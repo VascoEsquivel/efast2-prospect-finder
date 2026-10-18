@@ -17,6 +17,7 @@ import streamlit as st
 import data_fetcher as dfm
 import draft
 import player_list
+import recommend as rc
 import roster
 import ui
 import valuation as val
@@ -658,6 +659,12 @@ table_t = roster.team_category_table(valued, team_ids, cats, vs.stat_mode) if ca
 fit_weights = None
 if table_t is not None and len(team_ids.get(me, [])) >= 3:
     fit_weights = roster.team_fit_weights(table_t, me, cats, vs.punts)
+mine = [dict(ss.player_by_id[pid], value=float(valued.at[pid, "value"])) for pid in team_ids.get(me, [])]
+plan = rc.pick_plan(cur, me, N, state.settings.n_rounds, set(state.filled()))
+rec = None
+if plan.now_pick is not None:
+    rec = rc.recommend(available.set_index("player_id"), plan, my_players=mine, starters=starters, cats=cats,
+                       punts=vs.punts, table=table_t, me=me, n_rounds=state.settings.n_rounds, is_points=vs.is_points)
 
 tab_room, tab_board, tab_data = st.tabs(["Draft Room", "Draft Board", "Data"])
 
@@ -665,12 +672,20 @@ tab_room, tab_board, tab_data = st.tabs(["Draft Room", "Draft Board", "Data"])
 with tab_room:
     left, right = st.columns([2.3, 1], gap="medium")
     with left:
+        if rec is not None:
+            with st.container(key="recbox"):
+                st.html(ui.recommend_html(rec, N, team_name(me)))
+                if plan.on_clock and rec.top:
+                    for i, (col, t) in enumerate(zip(st.columns(len(rec.top)), rec.top)):
+                        col.button(f"Draft {ui.split_name(t['name'])[1] or t['name']}", key=f"rec_draft_{i}",
+                                   type="primary" if i == 0 else "secondary", on_click=do_pick, args=(t["player_id"],))
         with st.container(key="listbar"):
             f1, f2 = st.columns([3, 1.3], vertical_alignment="bottom")
             S["pos_filter"] = f1.segmented_control("Position", POS_FILTERS, default=S["pos_filter"], key="w_pos") or "All"
-            orders = ["My rank", "ADP"] + (["Team fit"] if fit_weights else [])
+            orders = ["My rank"] + (["Recommended"] if rec is not None else []) + ["ADP"] + (["Team fit"] if fit_weights else [])
             S["order"] = f2.selectbox("Order", orders, index=orders.index(S["order"]) if S["order"] in orders else 0,
-                                      help="Team fit unlocks after your 3rd pick")
+                                      help="Recommended = value + what your team needs + what won't last to your next "
+                                           "pick. Team fit unlocks after your 3rd pick.")
         view = available.copy()
         if fit_weights:
             view["fit"] = roster.team_fit_scores(view.set_index("player_id"), fit_weights).to_numpy()
@@ -679,6 +694,9 @@ with tab_room:
             view = view[view["positions"].map(lambda ps: bool(want & set(ps)))]
         if S["order"] == "ADP":
             view = view.sort_values("adp", na_position="last")
+        elif S["order"] == "Recommended" and rec is not None:
+            view = view.assign(_rec=view["player_id"].map(rec.scores["order_key"])).sort_values(
+                "_rec", ascending=False, na_position="last").drop(columns="_rec")
         elif S["order"] == "Team fit" and fit_weights:
             view = view.sort_values("fit", ascending=False)
         gone = val.likely_gone(view["adp"], next_mine)
@@ -686,7 +704,9 @@ with tab_room:
             view, gone=gone, cats=cats, punts=vs.punts, is_points=vs.is_points, fit_on=bool(fit_weights),
             next_pick=next_mine, projected=meta.kind == "projections", can_draft=cur is not None,
             clock=clock_label, clock_color=clock_color, order=S["order"], pos=S["pos_filter"],
-            sig=f"{S['pos_filter']}|{S['order']}|{vs.is_points}"), key="plist", on_draft=on_list_draft)
+            sig=f"{S['pos_filter']}|{S['order']}|{vs.is_points}",
+            recs={t["player_id"]: i + 1 for i, t in enumerate(rec.top)} if rec is not None else None),
+            key="plist", on_draft=on_list_draft)
         with st.container(key="listnote"):
             if not vs.is_points:
                 lr = info.get("league_rates", {})
@@ -703,7 +723,6 @@ with tab_room:
                            + " · ".join(f"{c} {w:g}" for c, w in fit_weights.items()))
 
     with right:
-        mine = [dict(ss.player_by_id[pid], value=float(valued.at[pid, "value"])) for pid in team_ids.get(me, [])]
         assignment = roster.assign_roster(mine, starters)
         slots = list(assignment.starters) + [("BN", p) for p in assignment.bench]
         slots += [("BN", None)] * max(0, state.settings.n_rounds - len(mine) - sum(p is None for _, p in assignment.starters))

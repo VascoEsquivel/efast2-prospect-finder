@@ -498,6 +498,74 @@ CSS = """
 [data-testid="stAlertContainer"]:has([data-testid="stAlertContentInfo"]) { background: rgba(61,139,255,.09) !important; box-shadow: inset 4px 0 0 #3D8BFF; }
 [data-testid="stExpander"] details { border-radius: 2px; }
 
+/* ── Recommended pick ── */
+.bc-rec { margin-bottom: 0; padding-bottom: 12px; }
+.bc-rec .bc-card-hd .t { font-size: 22px; }
+.bc-rec-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 0 18px; padding: 2px 16px 0; }
+.bc-rec-main { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; align-items: center; padding: 10px 14px 12px;
+  background: linear-gradient(100deg, rgba(255,200,61,.10), rgba(255,200,61,0) 70%); box-shadow: inset 4px 0 0 var(--tc, var(--bc-gold)); }
+.bc-rec-main .bc-av { grid-row: span 2; }
+.bc-rec-main .nm { font: 600 15px/1 var(--bc-cond); color: #C9CFDB; letter-spacing: .04em; text-transform: uppercase;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bc-rec-main .nm b { display: block; font: 900 30px/.95 var(--bc-display); color: var(--bc-ink); letter-spacing: .01em; }
+.bc-rec-main .mt { font: 600 12px/1 var(--bc-cond); letter-spacing: .08em; color: var(--bc-muted); text-transform: uppercase; }
+.bc-rec-why { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.bc-rec-why li { font: 500 13.5px/1.25 var(--bc-body); color: #D5DAE4; padding-left: 16px; position: relative; }
+.bc-rec-why li::before { content: ""; position: absolute; left: 2px; top: .45em; width: 7px; height: 7px; background: var(--bc-gold);
+  clip-path: polygon(0 0, 100% 50%, 0 100%); }
+.bc-rec-alt { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font: 600 12.5px/1.2 var(--bc-cond); letter-spacing: .04em;
+  color: var(--bc-muted); }
+.bc-rec-alt .k { font-weight: 800; letter-spacing: .16em; text-transform: uppercase; color: var(--bc-dim); }
+.bc-rec-alt b { color: var(--bc-ink); font-weight: 800; text-transform: uppercase; }
+.bc-rec-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.bc-rec-side .k { display: block; font: 800 11px/1 var(--bc-cond); letter-spacing: .18em; text-transform: uppercase; color: var(--bc-muted);
+  margin-bottom: 6px; }
+.bc-need { display: grid; grid-template-columns: 40px 34px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 5px 0;
+  border-top: 1px solid var(--bc-line); font: 600 13px/1.1 var(--bc-cond); color: #C9CFDB; }
+.bc-need .c { font: 800 15px/1 var(--bc-display); color: var(--bc-ink); letter-spacing: .04em; }
+.bc-need .r { font: 900 16px/1 var(--bc-display); color: var(--tier); text-align: right; }
+.bc-need .r sup { font-size: 9px; }
+.bc-need .w { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bc-need .w b { color: var(--bc-ink); font-weight: 800; text-transform: uppercase; }
+.bc-need .z { color: #8EF0BF; font-variant-numeric: tabular-nums; }
+.bc-need .ls { font: 800 10px/1 var(--bc-cond); letter-spacing: .12em; text-transform: uppercase; color: var(--bc-amber);
+  background: rgba(255,176,32,.12); padding: 3px 6px 2px; white-space: nowrap; }
+.bc-wait { display: grid; grid-template-columns: 26px minmax(0, 1fr) 34px; align-items: center; gap: 8px; padding: 3px 0;
+  font: 800 13px/1 var(--bc-cond); letter-spacing: .06em; color: var(--bc-ink); }
+.bc-wait .bar { height: 8px; background: var(--bc-panel3); position: relative; }
+.bc-wait .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--wc, var(--bc-muted)); }
+.bc-wait .v { font: 700 12.5px/1 var(--bc-cond); text-align: right; color: var(--bc-muted); font-variant-numeric: tabular-nums; }
+.bc-wait.hot .v { color: var(--bc-gold); }
+.bc-wait-mini { display: none; font: 700 13px/1.4 var(--bc-cond); letter-spacing: .05em; color: var(--bc-muted); }
+.bc-wait-mini b { color: var(--bc-ink); font-variant-numeric: tabular-nums; }
+.bc-wait-mini .hot, .bc-wait-mini .hot b { color: var(--bc-gold); }
+.bc-rec-empty { padding: 4px 16px 0; font: 500 13px/1.35 var(--bc-body); color: var(--bc-muted); }
+@container (max-width: 640px) {
+  .bc-rec-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; padding-left: 12px; padding-right: 12px; }
+  .bc-wait { display: none; }
+  .bc-wait-mini { display: block; }
+  .bc-rec-why li:nth-child(n+4) { display: none; }
+  .bc-rec .bc-card-hd .t { font-size: 19px; }
+  .bc-rec-main .nm b { font-size: 26px; }
+}
+.st-key-recbox { gap: 0 !important; margin-bottom: 14px; }
+.st-key-recbox [data-testid="stHorizontalBlock"] { background: #0C1018; padding: 0 16px 14px; gap: 8px !important; flex-wrap: wrap; }
+.st-key-recbox [data-testid="stColumn"] { width: auto !important; flex: 0 1 auto !important; min-width: 0 !important; }
+.st-key-recbox button { border-radius: 0 !important; clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+  padding: 4px 22px !important; min-height: 38px; }
+.st-key-recbox button p { font: 800 15px/1 var(--bc-cond) !important; letter-spacing: .12em; text-transform: uppercase; }
+.st-key-recbox button[kind="primary"] { background: var(--bc-gold) !important; border: 0 !important; }
+.st-key-recbox button[kind="primary"] p { color: #1A1200 !important; }
+.st-key-recbox button[kind="secondary"] { background: var(--bc-panel3) !important; border: 0 !important; }
+
+/* Tablet with the sidebar open: the list column gets narrow, so the position filter takes its own row */
+.st-key-listbar { container-type: inline-size; container-name: listbar; }
+.st-key-w_pos [role="radiogroup"] { overflow-x: auto; scrollbar-width: none; }
+@container listbar (max-width: 600px) {
+  .st-key-listbar [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; row-gap: 10px !important; }
+  .st-key-listbar [data-testid="stColumn"] { flex: 1 1 100% !important; width: 100% !important; min-width: 100% !important; }
+}
+
 /* ── Phones ── */
 @media (max-width: 640px) {
   .block-container { padding-top: .7rem !important; padding-left: .8rem !important; padding-right: .8rem !important; }
@@ -934,3 +1002,49 @@ def resume_html(n_picks: int, n_teams: int, when: str) -> str:
             f'<p>Your draft was saved automatically after every pick.</p>'
             f'<div class="stats"><div><b>{n_picks}</b><span>Picks in</span></div><div><b>{n_teams}</b><span>Teams</span></div>'
             f'<div><b>{esc(nice_time(when))}</b><span>Last saved</span></div></div></div>')
+
+
+def recommend_html(rec, n_teams: int, team_label: str) -> str:
+    """Recommended-pick card: top pick with reasons, alternates, weakest categories, value lost by waiting."""
+    plan = rec.plan
+    if plan.now_pick is None:
+        return ""
+    when = "on the clock now" if plan.on_clock else f"in {plan.before_now} pick{'s' if plan.before_now != 1 else ''}"
+    head = (f'<div class="bc-card-hd"><div class="stack"><span class="k">Recommended pick · {esc(team_label)}</span>'
+            f'<span class="t">For your pick #{plan.now_pick} · {esc(when)}</span></div></div>')
+    if not rec.top:
+        return f'<div class="bc-card bc-rec" style="--c:{GOLD}">{head}<div class="bc-rec-empty">No projected players left to recommend.</div></div>'
+    t = rec.top[0]
+    first, last = split_name(t["name"])
+    tc, _ = team_colors(t.get("team", ""))
+    why = "".join(f"<li>{esc(r)}</li>" for r in t["reasons"][:4])
+    alts = "".join(f'<span><b>{esc(split_name(a["name"])[1] or a["name"])}</b> {esc("/".join(a["positions"]))}</span>'
+                   for a in rec.top[1:3])
+    main = (f'<div><div class="bc-rec-main" style="--tc:{tc}">'
+            f'{avatar_html(t["name"], t.get("team", ""), t["player_id"], None, 52)}'
+            f'<span class="nm">{esc(first)}<b>{esc(last)}</b></span>'
+            f'<span class="mt">{esc(t.get("team", ""))} · {esc("/".join(t["positions"]) or "?")}</span></div>'
+            f'<ul class="bc-rec-why">{why}</ul>'
+            + (f'<div class="bc-rec-alt"><span class="k">Also</span>{alts}</div>' if alts else "") + '</div>')
+    side = []
+    if rec.gaps:
+        rows = []
+        for g in rec.gaps:
+            rows.append(f'<div class="bc-need" style="--tier:{tier_color(g["rank"], g["of"])}"><span class="c">{esc(g["cat"])}</span>'
+                        f'<span class="r">{g["rank"]}<sup>{ordinal(g["rank"])}</sup></span>'
+                        f'<span class="w">Best: <b>{esc(split_name(g["name"])[1] or g["name"])}</b> <span class="z">{g["z"]:+.1f}</span></span>'
+                        + ('<span class="ls">Long shot</span>' if g.get("long_shot") else "<span></span>") + '</div>')
+        side.append(f'<div><span class="k">Your weakest categories</span>{"".join(rows)}</div>')
+    if rec.wait_cost and plan.following:
+        top = max(rec.wait_cost.values()) or 1.0
+        hot = sorted(rec.wait_cost, key=rec.wait_cost.get, reverse=True)[:1]
+        bars = "".join(
+            f'<div class="bc-wait{" hot" if pos in hot and v >= 0.5 else ""}" style="--wc:{GOLD if pos in hot and v >= 0.5 else NEUTRAL}">'
+            f'<span>{pos}</span><span class="bar"><i style="width:{max(0.0, v) / top * 100:.0f}%"></i></span>'
+            f'<span class="v">{v:+.1f}</span></div>' for pos, v in rec.wait_cost.items())
+        chips = " · ".join(f'<span{" class=hot" if pos in hot and v >= 0.5 else ""}>{pos} <b>{v:+.1f}</b></span>'
+                           for pos, v in rec.wait_cost.items())
+        side.append(f'<div><span class="k">Value lost by waiting until #{plan.following}</span>{bars}'
+                    f'<div class="bc-wait-mini">{chips}</div></div>')
+    side_html = f'<div class="bc-rec-side">{"".join(side)}</div>' if side else "<div></div>"
+    return f'<div class="bc-card bc-rec" style="--c:{GOLD}">{head}<div class="bc-rec-grid">{main}{side_html}</div></div>'
