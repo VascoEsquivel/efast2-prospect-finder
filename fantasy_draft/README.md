@@ -130,7 +130,7 @@ How each line is built:
 3. **Ball share.** A team's players can only use 100% of its possessions: summed usage × minutes = 5 players × 100%. When a roster's combined usage is over that budget, everyone gives up the **same number of usage points**. Stars keep most of their shots and role players lose a bigger share. Players losing touches get slightly more efficient. A team under budget hands out touches the same way. Example: Philadelphia (Maxey, Jaylen Brown, Embiid, Edgecombe, LeBron) is the most crowded roster at 108% of its possessions. Maxey goes from 28.3 points last season to a projected 25.1, ranking 4th in 9-cat on steals, threes, FT% and low turnovers. Boston, after losing Brown, is at 90%, so Tatum, White and Pritchard get more shots.
 4. **Team style.** The new team's pace scales counting stats. Assists and rebounds are checked against how much the team moves the ball and rebounds. A shooter joining a heavy three-point team takes more threes. These are mild, because the backtest found them close to neutral.
 
-Every adjustment is written into the **Why** column. Select a row to see the full stat line with the reasons above the table.
+Every adjustment is written down: click a player in the *Best available* list to see the full projected stat line and the reasons (**Why**).
 
 **Backtest** (`python backtest_projections.py`): each test season is predicted only from the three seasons before it, using who actually played where. The comparison covers players with 25+ games, about 370 per season. Lower is better for error.
 
@@ -188,7 +188,7 @@ Rebuild it with `python build_last_season.py`, which downloads from GitHub relea
 - **Fast entry:** click the search box, type a few letters, and press **Enter**. That drafts the top suggestion to the team on the clock, and the cursor returns to the box.
   - In the default *Best-ranked match first* mode, the top suggestion is the best-ranked available player whose name (or team) contains what you typed: `mark` → Markkanen, `jok` → Jokić.
   - *Fuzzy* mode tolerates typos, but it can float a weak player with a closer spelling to the top. In a recorded mock with 4-letter last-name queries, it picked the intended player only 86/156 times, versus 156/156 for the default mode.
-- **Or** select a row in the table and click **Draft …**.
+- **Or** click **DRAFT** on a player's row in the *Best available* list (click the row itself to see the stat line first).
 - **Pick options:** record a traded pick (another team), a keeper (any pick number), or an out-of-order pick.
 - **Undo** removes the most recently entered pick. In the Data tab, **Remove pick** reopens any slot (the next entry fills it), and **Reset draft** needs a confirmation tick.
 - **Draft Board:** teams are columns and rounds are rows. Your column is yellow and the current pick has an orange outline.
@@ -228,8 +228,10 @@ The e2e script needs `pip install playwright && playwright install chromium`. It
 ```
 start.py / start.command / start.bat   one-step setup + launch (local)
 app.py               Streamlit UI wiring
-ui.py                dark theme CSS, cell colors and HTML cards (presentation only)
-.streamlit/config.toml  theme (dark navy + basketball orange, Inter / Barlow Condensed)
+ui.py                broadcast-style theme CSS and HTML pieces: score bug, pick crawl, roster, standings, board
+player_list.py       clickable "best available" list (custom component): team-color avatars, category heat chips, one-click Draft
+.streamlit/config.toml  theme (near-black + broadcast red; Barlow / Big Shoulders Display)
+data/bundled/teams.json  NBA team colors and logo URLs (ESPN data via sportsdataverse)
 data_fetcher.py      every source -> one normalized DataFrame; name matching; snapshots
 valuation.py         z-scores, replacement pool, points, ADP flags (pure)
 draft.py             snake order, picks, undo, persistence, Sleeper pick sync (pure)

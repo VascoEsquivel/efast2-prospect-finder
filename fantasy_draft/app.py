@@ -11,12 +11,12 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import streamlit as st
 
 import data_fetcher as dfm
 import draft
+import player_list
 import roster
 import ui
 import valuation as val
@@ -135,8 +135,7 @@ def boot() -> None:
 
 def resume_banner() -> None:
     saved: draft.DraftState = ss.pending_resume
-    when = saved.updated_at.replace("T", " ")
-    st.html(ui.resume_html(len(saved.picks), saved.settings.n_teams, when))
+    st.html(ui.resume_html(len(saved.picks), saved.settings.n_teams, saved.updated_at))
     st.warning("Saved draft found. Resume it, or start fresh (the old draft is archived, never deleted).")
     c1, c2, _ = st.columns([1, 1, 4], gap="small")
     if c1.button("▶ Resume draft", type="primary", key="resume_yes"):
@@ -308,8 +307,10 @@ def do_pick(pid: str) -> None:
     ss.w_team_override = 0
     ss.w_pick_override = 0
     ss.w_keeper = False
-    ss.refocus = True
-    flash("success", f"#{p.pick_no} {state.settings.team_name(p.team)}: {p.name}")
+    # Announced by the "THE PICK IS IN" lower third on the next run (instead of a toast).
+    ss.just_in = {"no": p.pick_no, "slot": p.team, "name": p.name, "nba_team": rec.get("team") or "",
+                  "pos": list(rec.get("positions") or []), "player_id": pid, "espn_id": rec.get("espn_id"),
+                  "rank": rec.get("rank"), "keeper": source == "keeper"}
 
 
 def on_search_pick() -> None:
@@ -317,6 +318,15 @@ def on_search_pick() -> None:
     ss.w_search = None
     if pid:
         do_pick(pid)
+        ss.refocus = True  # straight back into the box for the next pick
+
+
+def on_list_draft() -> None:
+    """DRAFT button in the best-available list (custom component trigger)."""
+    result = ss.get("plist")
+    pid = getattr(result, "draft", None) if result is not None else None
+    if pid:
+        do_pick(str(pid))
 
 
 def on_undo() -> None:
@@ -334,11 +344,6 @@ def on_remove(pick_no: int) -> None:
 
 
 # ── Display helpers ───────────────────────────────────────────────────────────
-
-def pos_label(positions, src) -> str:
-    s = "/".join(positions or [])
-    return f"{s} ≈" if str(src).startswith("approx") and s else s
-
 
 def player_label(rec: dict) -> str:
     # Accents stripped so typing "jokic" finds "Jokić".
@@ -405,7 +410,8 @@ with st.sidebar:
         tmpl = val.CATEGORY_TEMPLATES[S["template"]]
         cats = [c for c in S["categories"] if c in tmpl] or list(tmpl)
         S["categories"] = st.multiselect("Categories", tmpl, cats)
-        S["punts"] = st.multiselect("Punt", S["categories"], [p for p in S["punts"] if p in S["categories"]])
+        with st.container(key="sb_punts"):  # keyed container (not widget) so punted chips can be styled apart
+            S["punts"] = st.multiselect("Punt", S["categories"], [p for p in S["punts"] if p in S["categories"]])
     S["stat_mode"] = st.radio("Stat mode", ["per_game", "season"], index=["per_game", "season"].index(S["stat_mode"]),
                               format_func={"per_game": "Per game", "season": "Season totals (× GP)"}.get,
                               horizontal=True)
@@ -515,64 +521,99 @@ meta = metas[0]
 cur = state.current_pick()
 N = state.settings.n_teams
 me = state.settings.my_slot
-badges = []
+team_name = state.settings.team_name
+tags = []
 if "ACTUALS" in meta.source:
-    badges.append(("📅 2025-26 actuals, not projections", "warn"))
+    tags.append(("2025-26 actuals, not projections", "warn"))
 elif meta.kind == "projections":
-    badges.append(("📈 2026-27 projections", "ok"))
+    tags.append(("2026-27 projections", "ok"))
 if meta.from_cache:
-    badges.append(("⚠ cached snapshot", "warn"))
+    tags.append(("Cached snapshot", "warn"))
 adp_label = next((k for k, v in ADP_COLUMNS.items() if v == adp_col), None)
-badges.append((f"ADP: {adp_label}" if adp_label else "No ADP loaded", "ok" if adp_label else ""))
+tags.append((f"ADP: {adp_label}" if adp_label else "No ADP loaded", ("ok" if adp_label else "") + " opt"))
 if S["sleeper_sync"] and S["sleeper_draft_id"]:
-    badges.append(("● Sleeper live sync", "live"))
-badges.append((f"{N} teams · {state.settings.n_rounds} rounds · slot {me}", ""))
-st.html(ui.header_html(badges))
-src_line = f"**{meta.source}** · fetched {meta.fetched_at.replace('T', ' ')}" + (" · ⚠ cached snapshot" if meta.from_cache else "")
-st.caption(src_line)
+    tags.append(("Sleeper live", "live"))
+tags.append((f"{N} teams · {state.settings.n_rounds} rds · slot {me}", "opt"))
+with st.container(key="masthead"):
+    st.html(ui.header_html(tags))
+    st.caption(f"**{meta.source}** · updated {ui.nice_time(meta.fetched_at)}"
+               + (" · ⚠ cached snapshot" if meta.from_cache else ""))
 for w in meta.warnings:
     if w.startswith("FALLBACK"):
         st.error(w)
 
 available = players[~players["player_id"].isin(drafted)].sort_values("rank")
-with st.container(key="scoreboard"):
-    h1, h2, h3, h5 = st.columns([1.0, 1.3, 1.2, 0.55], vertical_alignment="center")
+clock_team = draft.team_for_pick(cur, N) if cur else None
+next_mine = state.next_pick_for_team(me) if cur else None
+clock_label = ("YOU" if clock_team == me else team_name(clock_team)) if clock_team else "—"
+clock_color = ui.fantasy_color(clock_team, me) if clock_team else ui.NEUTRAL
+st.html(ui.clock_style_html(clock_color, ui.monogram(team_name(clock_team), clock_team) if clock_team else ""))
+
+# ── Score bug: pick · on the clock · your next pick · undo ────────────────────
+with st.container(key="scorebug"):
+    h1, h2, h3, h5 = st.columns([1.0, 1.75, 1.05, 0.56], vertical_alignment="center")
     if cur is None:
-        h1.metric("Pick", "Done")
-        h2.metric("On the clock", "—")
-        clock_team = None
-        next_mine = None
+        h1.metric("Pick", "Done", "draft complete", delta_color="off", delta_arrow="off")
+        with h2.container(key="clock_done"):
+            st.metric("On the clock", "—")
     else:
         r = draft.round_of(cur, N)
         h1.metric("Pick", f"#{cur}", f"Round {r} · pick {cur - (r - 1) * N}", delta_color="off", delta_arrow="off")
-        clock_team = draft.team_for_pick(cur, N)
+        if state.reopened_slot():
+            clock_note = "reopened pick"
+        elif clock_team == me:
+            clock_note = "make your pick"
+        elif cur < state.total_picks:
+            up = draft.team_for_pick(cur + 1, N)
+            clock_note = "you're up next" if up == me else f"up next: {team_name(up)}"
+        else:
+            clock_note = "last pick"
         with h2.container(key="clock_you" if clock_team == me else "clock_other"):
-            st.metric("On the clock", ("YOU" if clock_team == me else state.settings.team_name(clock_team)),
-                      "reopened pick" if state.reopened_slot() else ("make your pick" if clock_team == me else None),
-                      delta_color="off", delta_arrow="off")
-        next_mine = state.next_pick_for_team(me)
+            st.metric("On the clock", clock_label, clock_note, delta_color="off", delta_arrow="off")
     soon = bool(next_mine and cur and next_mine - cur <= 3)
     with h3.container(key="next_soon" if soon else "next_later"):
-        st.metric("Your next pick", f"#{next_mine}" if next_mine else "—",
-                  f"in {next_mine - cur} picks" if next_mine and cur else None, delta_color="off", delta_arrow="off")
+        if next_mine and cur:
+            wait = next_mine - cur
+            note = "on the clock now" if wait == 0 else f"in {wait} pick{'s' if wait != 1 else ''}"
+        else:
+            note = None
+        st.metric("Your next pick", f"#{next_mine}" if next_mine else "—", note, delta_color="off", delta_arrow="off")
     h5.button("↶ Undo", on_click=on_undo, disabled=not state.picks, width="stretch", help="Take back the last pick")
+    if cur:
+        rnd = draft.round_of(cur, N)
+        filled = state.filled()
+        segs = []
+        for no in range((rnd - 1) * N + 1, min(rnd * N, state.total_picks) + 1):
+            t = draft.team_for_pick(no, N)
+            segs.append({"mono": ui.monogram(team_name(t), t), "color": ui.fantasy_color(t, me), "done": no in filled,
+                         "cur": no == cur, "mine": t == me,
+                         "title": f"#{no} {team_name(t)}" + (f": {filled[no].name}" if no in filled else "")})
+        st.html(ui.round_strip_html(rnd, segs, cur - (rnd - 1) * N, N))
+
+# ── Draft bar: the search box (type a few letters + Enter drafts the top match) ──
+with st.container(key="draftbar"):
     s1, s2 = st.columns([3.2, 1], vertical_alignment="bottom")
     with s1.container(key="pick_search"):
         st.selectbox(
-            "Draft a player · type a few letters, press Enter", available["player_id"].tolist(), index=None,
+            f"Draft for {clock_label} · type a name, press Enter" if clock_team else "Draft complete",
+            available["player_id"].tolist(), index=None,
             key="w_search", on_change=on_search_pick, format_func=lambda pid: player_label(ss.player_by_id[pid]),
             filter_mode=S["search_mode"],
-            placeholder=(f"Search players to draft for {'YOU' if clock_team == me else state.settings.team_name(clock_team)}…"
-                         if clock_team else "Draft complete"), disabled=cur is None)
+            placeholder=(f"Search players to draft for {clock_label}…" if clock_team else "Draft complete"),
+            disabled=cur is None)
     with s2.expander("Pick options"):
         st.selectbox("Team", [0, *range(1, N + 1)], key="w_team_override",
-                     format_func=lambda t: "On the clock" if t == 0 else state.settings.team_name(t))
+                     format_func=lambda t: "On the clock" if t == 0 else team_name(t))
         st.number_input("Pick # (0 = current)", 0, state.total_picks, key="w_pick_override",
                         help="For keepers and out-of-order picks")
         st.checkbox("Keeper", key="w_keeper")
-recent = sorted(state.picks, key=lambda p: p.seq)[-6:][::-1]
-st.html(ui.ticker_html([{"no": p.pick_no, "team": state.settings.team_name(p.team), "name": p.name,
-                         "pos": p.positions, "mine": p.team == me} for p in recent]))
+recent = sorted(state.picks, key=lambda p: p.seq)[-12:][::-1]
+just_in = ss.pop("just_in", None)
+if just_in and not any(p.pick_no == just_in["no"] and p.name == just_in["name"] for p in state.picks):
+    just_in = None  # undone or replaced before this run
+st.html(ui.ticker_html([{"no": p.pick_no, "team": team_name(p.team), "slot": p.team, "me_slot": me, "name": p.name,
+                         "nba_team": p.nba_team, "pos": p.positions, "mine": p.team == me} for p in recent])
+        + (ui.lower_third_html(just_in, team_name(just_in["slot"]), me, N) if just_in else ""))
 
 # ── Sleeper sync (fragment polls without rerunning the whole app) ─────────────
 if S["sleeper_sync"] and S["sleeper_draft_id"]:
@@ -622,13 +663,14 @@ tab_room, tab_board, tab_data = st.tabs(["Draft Room", "Draft Board", "Data"])
 
 # ── Draft Room ────────────────────────────────────────────────────────────────
 with tab_room:
-    left, right = st.columns([2, 1], gap="large")
+    left, right = st.columns([2.3, 1], gap="medium")
     with left:
-        f1, f2 = st.columns([3, 2])
-        S["pos_filter"] = f1.segmented_control("Position", POS_FILTERS, default=S["pos_filter"], key="w_pos") or "All"
-        orders = ["My rank", "ADP"] + (["Team fit"] if fit_weights else [])
-        S["order"] = f2.selectbox("Order", orders, index=orders.index(S["order"]) if S["order"] in orders else 0,
-                                  help="Team fit unlocks after your 3rd pick")
+        with st.container(key="listbar"):
+            f1, f2 = st.columns([3, 1.3], vertical_alignment="bottom")
+            S["pos_filter"] = f1.segmented_control("Position", POS_FILTERS, default=S["pos_filter"], key="w_pos") or "All"
+            orders = ["My rank", "ADP"] + (["Team fit"] if fit_weights else [])
+            S["order"] = f2.selectbox("Order", orders, index=orders.index(S["order"]) if S["order"] in orders else 0,
+                                      help="Team fit unlocks after your 3rd pick")
         view = available.copy()
         if fit_weights:
             view["fit"] = roster.team_fit_scores(view.set_index("player_id"), fit_weights).to_numpy()
@@ -640,86 +682,32 @@ with tab_room:
         elif S["order"] == "Team fit" and fit_weights:
             view = view.sort_values("fit", ascending=False)
         gone = val.likely_gone(view["adp"], next_mine)
-        table = pd.DataFrame({
-            "Rk": view["rank"], "Player": view["name"], "Team": view["team"],
-            "Pos": [pos_label(p, s) for p, s in zip(view["positions"], view["positions_source"])],
-            "Inj": view["injury_status"], "GP": view["GP"],
-        })
-        z_cols = []
-        if vs.is_points:
-            table["FP"] = view["FP"]
-            table["Value"] = view["FP_value"]
-            for c in ["PTS", "REB", "AST", "STL", "BLK", "TO"]:
-                table[c] = view[c]
-        else:
-            table["Z"] = view["Z_total"]
+        player_list.render(player_list.payload(
+            view, gone=gone, cats=cats, punts=vs.punts, is_points=vs.is_points, fit_on=bool(fit_weights),
+            next_pick=next_mine, projected=meta.kind == "projections", can_draft=cur is not None,
+            clock=clock_label, clock_color=clock_color, order=S["order"], pos=S["pos_filter"],
+            sig=f"{S['pos_filter']}|{S['order']}|{vs.is_points}"), key="plist", on_draft=on_list_draft)
+        with st.container(key="listnote"):
+            if not vs.is_points:
+                lr = info.get("league_rates", {})
+                st.caption(f"Click a player for the full stat line{' and why the projection moved' if meta.kind == 'projections' else ''}"
+                           f" · DRAFT picks for the team on the clock (Pick options overrides it). "
+                           f"Z = value over the top-{vs.pool_size} pool ({info.get('iterations')} iterations"
+                           f"{'' if info.get('converged') else ', not converged'}; lg FG% {lr.get('FG%', 0):.3f}, "
+                           f"FT% {lr.get('FT%', 0):.3f}). ≈ = approximate positions; struck-out categories are punted.")
+            else:
+                st.caption(f"Replacement level: {info.get('replacement_fp', 0):.1f} FP ({vs.stat_mode.replace('_', ' ')}). "
+                           "Chips show the per-game stat line; val = FP over replacement.")
             if fit_weights:
-                table["Fit"] = view["fit"]
-            for c in cats:
-                table[c + ("·p" if c in vs.punts else "")] = view[f"Z_{c}"]
-                z_cols.append(c + ("·p" if c in vs.punts else ""))
-        table["ADP"] = view["adp"]
-        table["Δ"] = view["delta"]
-        table["Flag"] = view["flag"].map({"STEAL": "▲ STEAL", "REACH": "▼ REACH"}).fillna("")
-        table["Gone by"] = np.where(gone, f"⏳ #{next_mine}", "")
-        if view["proj_notes"].str.len().gt(0).any():
-            table["Why"] = view["proj_notes"]
-        # Market columns sit right after the value so STEAL/REACH is visible without scrolling.
-        lead = ["Rk", "Player", "Pos", "Z", "Fit", "FP", "Value", "Flag", "ADP", "Δ", "Gone by", "Team", "Inj", "GP"]
-        table = table[[c for c in lead if c in table] + [c for c in table if c not in lead]].reset_index(drop=True)
-        styler = (table.style.map(ui.z_cell, subset=z_cols).map(ui.flag_cell, subset=["Flag"])
-                  .map(ui.next_cell, subset=["Gone by"]).map(ui.muted_cell, subset=["Rk", "Team", "GP"]))
-        if not vs.is_points:
-            styler = styler.map(ui.z_cell, subset=["Z"] + (["Fit"] if fit_weights else []),
-                                scale=max(2.5, 2.5 * len(cats) ** 0.5))
-        cfg = {c: st.column_config.NumberColumn(c, format="%.2f", width="small") for c in z_cols}
-        cfg.update({
-            "Rk": st.column_config.NumberColumn(width=36),
-            "Player": st.column_config.TextColumn(width=146),
-            "Team": st.column_config.TextColumn(width=46),
-            "Pos": st.column_config.TextColumn(width=68),
-            "Flag": st.column_config.TextColumn(width=78),
-            "Gone by": st.column_config.TextColumn(width=74, help="Usually drafted before your next pick (ADP earlier than it)"),
-            "Z": st.column_config.NumberColumn(format="%.2f", width=56),
-            "Fit": st.column_config.NumberColumn(format="%.2f", width="small", help="Z re-weighted for your team"),
-            "GP": st.column_config.NumberColumn(format="%d", width="small"),
-            "ADP": st.column_config.NumberColumn(format="%.1f", width=56),
-            "Δ": st.column_config.NumberColumn(format="%+.0f", width=48),
-            "Why": st.column_config.TextColumn(width="large", help="What moved this 2026-27 projection: new team, "
-                                               "ball share on the new roster, minutes, pace, 3PT system, age"),
-            "FP": st.column_config.NumberColumn(format="%.1f"),
-            "Value": st.column_config.NumberColumn(format="%+.1f"),
-            **{c: st.column_config.NumberColumn(format="%.1f") for c in ["PTS", "REB", "AST", "STL", "BLK", "TO"]},
-        })
-        line_slot = st.empty()  # selected player's stat line, above the table so it is seen
-        event = st.dataframe(styler, hide_index=True, height=640, column_config=cfg, on_select="rerun", placeholder="",
-                             selection_mode="single-row", key=f"avail_{len(state.picks)}_{S['pos_filter']}_{S['order']}")
-        rows = event.selection.rows if event is not None else []
-        sel_pid = view["player_id"].iloc[rows[0]] if rows else None
-        if sel_pid:
-            line_slot.html(ui.player_line_html(view.iloc[rows[0]], meta.kind == "projections"))
-        else:
-            line_slot.html(ui.player_line_hint(meta.kind == "projections"))
-        b1, b2 = st.columns([2, 3])
-        b1.button(f"Draft {ss.player_by_id[sel_pid]['name']}" if sel_pid else "Select a row to draft it",
-                  type="primary", disabled=sel_pid is None or cur is None, on_click=do_pick, args=(sel_pid,))
-        if not vs.is_points:
-            lr = info.get("league_rates", {})
-            b2.caption(f"Pool: top {vs.pool_size} · {info.get('iterations')} iterations"
-                       f"{'' if info.get('converged') else ' (not converged)'} · lg FG% {lr.get('FG%', 0):.3f} · "
-                       f"FT% {lr.get('FT%', 0):.3f}. ≈ = approximate positions; ·p = punted.")
-        else:
-            b2.caption(f"Replacement level: {info.get('replacement_fp', 0):.1f} FP ({vs.stat_mode.replace('_', ' ')}).")
-        if fit_weights:
-            st.caption("Team-fit weights (0 = punted or locked up, 1.5 = competitive middle): "
-                       + " · ".join(f"{c} {w:g}" for c, w in fit_weights.items()))
+                st.caption("Team-fit weights (0 = punted or locked up, 1.5 = competitive middle): "
+                           + " · ".join(f"{c} {w:g}" for c, w in fit_weights.items()))
 
     with right:
         mine = [dict(ss.player_by_id[pid], value=float(valued.at[pid, "value"])) for pid in team_ids.get(me, [])]
         assignment = roster.assign_roster(mine, starters)
         slots = list(assignment.starters) + [("BN", p) for p in assignment.bench]
         slots += [("BN", None)] * max(0, state.settings.n_rounds - len(mine) - sum(p is None for _, p in assignment.starters))
-        st.html(ui.roster_html(slots, state.settings.team_name(me), f"{len(mine)} / {state.settings.n_rounds} drafted"))
+        st.html(ui.roster_html(slots, team_name(me), n_have=len(mine), n_total=state.settings.n_rounds))
         if vs.is_points:
             fp = {t: float(valued.loc[ids, "FP"].sum()) if ids else 0.0 for t, ids in team_ids.items()}
             order_ = sorted(fp, key=fp.get, reverse=True)
@@ -742,7 +730,7 @@ for p in state.picks:
 with tab_board:
     st.html(ui.board_html(N, state.settings.n_rounds, board_cells, me,
                           (draft.round_of(cur, N), draft.team_for_pick(cur, N)) if cur else None,
-                          state.settings.team_name))
+                          state.settings.team_name, latest=max(state.picks, key=lambda p: p.seq).pick_no if state.picks else None))
 
 # ── Data tab ──────────────────────────────────────────────────────────────────
 with tab_data:
@@ -750,7 +738,7 @@ with tab_data:
     for e in load_errors:
         st.warning(e)
     st.dataframe(pd.DataFrame([{
-        "source": m.source, "kind": m.kind, "fetched": m.fetched_at.replace("T", " "), "players": m.n_players,
+        "source": m.source, "kind": m.kind, "fetched": ui.nice_time(m.fetched_at), "players": m.n_players,
         "cached snapshot": "yes ⚠" if m.from_cache else "", "origin": m.origin, "notes": " | ".join(m.warnings),
     } for m in metas]), hide_index=True, width="stretch")
 
@@ -885,8 +873,15 @@ with tab_data:
 
 save_settings_if_changed(S)
 
+# Headshot/logo load handling for the st.html blocks (initials until an image has really loaded).
+st.html(ui.img_script(), unsafe_allow_javascript=True)
+
 # Put the cursor back in the search box right after a pick, for rapid entry.
 if ss.pop("refocus", False):
     st.html("""<script>
-setTimeout(() => { const el = document.querySelector('.st-key-pick_search input'); if (el) { el.focus(); } }, 250);
+setTimeout(() => {
+  // Phones skip this: focusing would pop the keyboard over the list.
+  if (window.matchMedia('(max-width: 640px)').matches) return;
+  const el = document.querySelector('.st-key-pick_search input'); if (el) { el.focus(); }
+}, 250);
 </script>""", unsafe_allow_javascript=True)
