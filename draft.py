@@ -295,11 +295,13 @@ def sleeper_pick_player(sp: dict) -> dict:
 
 
 def apply_sleeper_picks(state: DraftState, sleeper_picks: list[dict],
-                        resolve: Callable[[str], dict | None]) -> tuple[list[Pick], list[str]]:
+                        resolve: Callable[[str], dict | None],
+                        resolve_name: Callable[[str], dict | None] | None = None) -> tuple[list[Pick], list[str]]:
     """Apply picks from GET /v1/draft/{id}/picks. Sleeper is treated as authoritative.
 
-    `resolve(sleeper_player_id)` returns a dataset player dict or None. Idempotent: picks that
-    already match are skipped. Returns (new picks, human-readable messages).
+    `resolve(sleeper_player_id)` returns a dataset player dict or None; `resolve_name(full name)`
+    (optional) tries the name Sleeper sends with each pick. Idempotent: picks that already match are
+    skipped. Returns (new picks, human-readable messages).
     """
     applied: list[Pick] = []
     messages: list[str] = []
@@ -312,7 +314,9 @@ def apply_sleeper_picks(state: DraftState, sleeper_picks: list[dict],
             continue
         if not sp.get("player_id") or pick_no > state.total_picks:
             continue
-        player = resolve(str(sp["player_id"])) or sleeper_pick_player(sp)
+        fallback = sleeper_pick_player(sp)
+        player = (resolve(str(sp["player_id"])) or (resolve_name(fallback["name"]) if resolve_name else None)
+                  or fallback)
         pid = str(player["player_id"])
 
         existing = state.filled().get(pick_no)

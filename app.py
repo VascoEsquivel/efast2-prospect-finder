@@ -56,6 +56,7 @@ DEFAULT_SETTINGS = {
     "adp_mapping": None,
     "adp_target": "adp_sleeper",
     "sleeper_draft_id": "",
+    "sleeper_username": "",
     "sleeper_sync": False,
     "order": "My rank",
     "pos_filter": "All",
@@ -468,20 +469,53 @@ with st.sidebar:
              "Fuzzy: tolerates typos, but may rank a weak player with a closer spelling first.")
 
     st.header("Sleeper live sync")
-    S["sleeper_draft_id"] = st.text_input("Sleeper draft_id", S["sleeper_draft_id"]).strip()
-    S["sleeper_sync"] = st.toggle("Poll picks every 5 s", S["sleeper_sync"], disabled=not S["sleeper_draft_id"])
-    if S["sleeper_draft_id"] and st.button("Load teams/rounds from Sleeper", disabled=has_picks):
+    st.caption("Picks made in your Sleeper draft show up here automatically (every 5 s while this page is open). "
+               "In Sleeper, open the draft room and copy its address.")
+    link = st.text_input("Sleeper draft link", S["sleeper_draft_id"], placeholder="https://sleeper.com/draft/nba/…")
+    draft_id = dfm.parse_sleeper_draft_id(link)
+    if link.strip() and not draft_id:
+        st.error("That doesn't look like a Sleeper draft link. It should contain /draft/nba/ followed by a long number.")
+    S["sleeper_draft_id"] = draft_id or ""
+    S["sleeper_username"] = st.text_input("Your Sleeper username (optional)", S["sleeper_username"],
+                                          help="Lets the app find your draft slot and the other teams' names.").strip()
+    if draft_id and st.button("Connect to Sleeper draft", type="primary", width="stretch"):
         try:
-            d = dfm.fetch_sleeper_draft(S["sleeper_draft_id"])
-            cfg_ = d.get("settings") or {}
-            state.settings.n_teams = int(cfg_.get("teams") or state.settings.n_teams)
-            state.settings.n_rounds = int(cfg_.get("rounds") or state.settings.n_rounds)
-            persist()
-            flash("success", f"Sleeper draft: {state.settings.n_teams} teams x {state.settings.n_rounds} rounds, "
-                             f"type {d.get('type')}, status {d.get('status')}. Set your draft slot above.")
+            d = dfm.fetch_sleeper_draft(draft_id)
+            user_id, league_users = None, []
+            if S["sleeper_username"]:
+                user_id = (dfm.fetch_sleeper_user(S["sleeper_username"]) or {}).get("user_id")
+                if not user_id:
+                    flash("error", f"Sleeper has no user named '{S['sleeper_username']}'. Set your draft slot by hand.")
+            if d.get("league_id"):
+                try:
+                    league_users = dfm.fetch_sleeper_league_users(str(d["league_id"]))
+                except Exception:  # noqa: BLE001 - names are a nice-to-have
+                    league_users = []
+            setup = dfm.sleeper_draft_setup(d, user_id, league_users)
+            notes = []
+            if has_picks:
+                notes.append("league settings kept (picks already entered)")
+            else:
+                state.settings.n_teams = setup["teams"] or state.settings.n_teams
+                state.settings.n_rounds = setup["rounds"] or state.settings.n_rounds
+                if setup["my_slot"]:
+                    state.settings.my_slot = setup["my_slot"]
+                    notes.append(f"you pick from slot {setup['my_slot']}")
+                elif not setup["has_order"]:
+                    notes.append("draft order not set in Sleeper yet: connect again once it is, or set your slot above")
+                else:
+                    notes.append("set your draft slot above")
+                if any(setup["team_names"]):
+                    state.settings.team_names = setup["team_names"]
+                persist()
+            S["sleeper_sync"] = True
+            save_settings(S)
+            flash("success", f"Connected: {state.settings.n_teams} teams × {state.settings.n_rounds} rounds "
+                             f"({setup['status'].replace('_', ' ') or 'status unknown'}); " + "; ".join(notes) + ".")
         except Exception as exc:  # noqa: BLE001
-            flash("error", f"Could not load the Sleeper draft: {exc}")
+            flash("error", f"Could not reach that Sleeper draft: {exc}")
         st.rerun()
+    S["sleeper_sync"] = st.toggle("Live sync on", S["sleeper_sync"], disabled=not draft_id)
 
     st.header("Draft backup")
     st.caption("Hosted apps (Streamlit Cloud) wipe files when they restart. Grab a backup now and then.")
@@ -640,6 +674,11 @@ if S["sleeper_sync"] and S["sleeper_draft_id"]:
                                       if sid in sl_to_name else None)
         return dict(rec) if rec else None
 
+    def resolve_by_name(name: str):
+        """The name Sleeper sends with each pick, so syncing works without the Sleeper metadata download."""
+        rec = by_key.get(dfm.name_key(name, dfm.load_overrides()))
+        return dict(rec) if rec else None
+
     @st.fragment(run_every=5)
     def sleeper_sync():
         try:
@@ -647,7 +686,7 @@ if S["sleeper_sync"] and S["sleeper_draft_id"]:
         except Exception as exc:  # noqa: BLE001
             st.caption(f"⚠ Sleeper sync failed at {datetime.now():%H:%M:%S}: {str(exc)[:120]}. Manual entry still works.")
             return
-        applied, msgs = draft.apply_sleeper_picks(ss.draft, picks, resolve_sleeper)
+        applied, msgs = draft.apply_sleeper_picks(ss.draft, picks, resolve_sleeper, resolve_by_name)
         if applied:
             persist()
             for m in msgs:

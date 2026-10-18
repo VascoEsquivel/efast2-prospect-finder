@@ -76,7 +76,7 @@ The header always shows which source is loaded and when it was fetched. The **Da
 | **ADP CSV** | ADP from Sleeper, ESPN or anywhere else | Sidebar → *ADP / metadata sources* → upload and pick what it is | Tested |
 | **ESPN projections** | 2026-27 projections, ADP, positions, injuries | Data tab → *Fetch ESPN projections + ADP* | Parser tested on documented shape; **verify with the probe** |
 | **Sleeper players** | IDs, positions, injuries, current teams | Data tab → *Refresh Sleeper metadata* (fetched at most once a day) | Parser tested on documented shape; **verify with the probe** |
-| **Sleeper live sync** | Picks from a Sleeper draft, every 5 s | Sidebar → Sleeper draft_id → *Poll picks* | Tested with fixtures; **verify with the probe** |
+| **Sleeper live sync** | Picks from your Sleeper draft every 5 s, plus teams, rounds, your slot and team names | Sidebar → paste the draft link → *Connect to Sleeper draft* | Tested with mocked API responses |
 | **Last season 2025-26 (bundled)** | Real per-game actuals for 582 players, with 2026-27 teams | Sidebar → Player data | Verified |
 | **Last season via nba_api** | Same season from NBA.com | Data tab → *Refresh last season (nba_api)* | Parser tested; endpoint unverified |
 | **FantasyPros ECR** | Expert consensus *rank* for ESPN points leagues (2026-09-29) | Sidebar → *Use FantasyPros ECR*, then Data tab → fetch | Verified (rank, **not ADP**) |
@@ -116,9 +116,16 @@ The header always shows which source is loaded and when it was fetched. The **Da
 - `api.sleeper.app/v1/players/nba` is a large metadata dump. It has no projections or ADP that I could confirm.
 - `probe_endpoints.py` tries the undocumented `/v1/projections/nba/regular/<year>` and `/v1/stats/nba/…` URLs. If they work for you, they can be added as a source.
 - Until then, "Sleeper ADP" means an ADP CSV you import and mark as *Sleeper ADP*.
-- **Live sync:** paste the draft_id (the number in the Sleeper draft URL).
-  - Before any picks, click *Load teams/rounds from Sleeper*, then set your slot.
-  - Turn on *Poll picks every 5 s*. Picks are matched by Sleeper ID (from the metadata refresh), then by name. Sleeper is treated as authoritative if it disagrees with a manual entry.
+- **Live sync** (sidebar → *Sleeper live sync*):
+  1. In Sleeper, open your draft room and copy its address (`https://sleeper.com/draft/nba/<long number>`). Paste it into **Sleeper draft link**.
+  2. Optionally type your **Sleeper username**: the app then finds your draft slot and the other teams' names.
+  3. Click **Connect to Sleeper draft**. Before any picks it sets teams, rounds, your slot and team names from Sleeper, then turns **Live sync** on.
+  4. Keep this page open during the draft. Every 5 seconds it pulls the picks made in Sleeper; they appear on the board and drop out of *Best available*.
+  - **Matching:** picks are matched to players by Sleeper ID when the Sleeper metadata has been refreshed (Data tab), otherwise by the name Sleeper sends with each pick.
+  - **Conflicts:** Sleeper wins if it disagrees with a pick you typed. If the hosted app restarts mid-draft, reconnecting pulls every pick again.
+  - **Before the draft order exists:** connect again once Sleeper has set it, or set *My draft slot* yourself.
+  - **Try it first** on a Sleeper mock draft: its link works the same way.
+  - The endpoints follow Sleeper's public API docs (`/v1/draft/<id>`, `/v1/draft/<id>/picks`, `/v1/user/<name>`, `/v1/league/<id>/users`). This build environment can't reach Sleeper, so they're tested with mocked responses; any error shows in the app and manual entry keeps working.
 
 ### Bundled 2026-27 projections
 
