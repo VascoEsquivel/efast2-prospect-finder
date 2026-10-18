@@ -94,6 +94,7 @@ CSS = r"""
 .tag.gone { background: rgba(255,176,32,.16); color: #FFC24D; }
 .tag.inj { background: rgba(255,92,116,.16); color: #FF9AAA; }
 .tag.ns { background: rgba(255,255,255,.07); color: var(--muted); }
+.tag.rec { background: var(--gold); color: #1A1200; }
 .val { grid-area: val; text-align: right; font: 900 25px/1 var(--display); font-variant-numeric: tabular-nums; letter-spacing: .01em; }
 .val small { display: block; margin-top: 3px; font: 700 11px/1 var(--cond); letter-spacing: .06em; color: var(--gold); }
 .val.none { color: var(--dim); font-size: 18px; }
@@ -202,7 +203,7 @@ function rowHtml(r, d, open) {
   let html = `<div class="row${open ? ' open' : ''}" data-row="${esc(r.id)}" style="--tc:${esc(r.tc)};--tc0:${esc(r.tc0)}">
     <span class="rk">${esc(r.rk)}</span><span class="av">${esc(r.ini)}${img}</span>
     <span class="who"><span class="nm">${esc(r.fn)} <b>${esc(r.ln)}</b></span>
-      <span class="mt">${logo}<span class="tmn">${esc(r.tm)}</span><span>· ${esc(r.pos)}</span>${r.gp ? `<span>· ${esc(r.gp)} GP</span>` : ''}${tags.join('')}</span></span>
+      <span class="mt">${r.rec ? `<span class="tag rec">★ ${r.rec === 1 ? 'Pick' : 'Alt'}</span>` : ''}${logo}<span class="tmn">${esc(r.tm)}</span><span>· ${esc(r.pos)}</span>${r.gp ? `<span>· ${esc(r.gp)} GP</span>` : ''}${tags.join('')}</span></span>
     ${val}<span class="chips">${chips}</span>${adp}${btn}</div>`;
   if (open) {
     const stats = r.line.length ? r.line.map((s) => `<div><b>${esc(s[1])}</b><span>${esc(s[0])}</span></div>`).join('')
@@ -315,7 +316,7 @@ def stat_line(rec: dict) -> list[list[str]]:
 
 def payload(view: pd.DataFrame, *, gone, cats: list[str], punts: tuple, is_points: bool, fit_on: bool,
             next_pick: int | None, projected: bool, can_draft: bool, clock: str, clock_color: str,
-            order: str, pos: str, sig: str) -> dict:
+            order: str, pos: str, sig: str, recs: dict[str, int] | None = None) -> dict:
     """Everything the component draws, as JSON-able display values for the top ROW_CAP rows of `view`."""
     cols = POINT_STATS if is_points else list(cats)
     z_scale = max(2.5, 2.5 * len(cats) ** 0.5) if cats else 2.5
@@ -371,6 +372,7 @@ def payload(view: pd.DataFrame, *, gone, cats: list[str], punts: tuple, is_point
             "adp": "" if adp is None else f"{adp:.1f}", "d": "" if delta is None else f"{delta:+.0f}",
             "flag": str(rec.get("flag") or ""), "gone": bool(gone_list[i]) if i < len(gone_list) else False,
             "why": str(rec.get("proj_notes") or "").strip(), "line": [] if no_stats else stat_line(rec),
+            "rec": (recs or {}).get(rec["player_id"], 0),  # 1 = recommended pick, 2+ = alternates
         })
     return {
         "sig": sig, "mode": "points" if is_points else "cats",

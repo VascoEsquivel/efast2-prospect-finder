@@ -189,6 +189,12 @@ Rebuild it with `python build_last_season.py`, which downloads from GitHub relea
   - In the default *Best-ranked match first* mode, the top suggestion is the best-ranked available player whose name (or team) contains what you typed: `mark` → Markkanen, `jok` → Jokić.
   - *Fuzzy* mode tolerates typos, but it can float a weak player with a closer spelling to the top. In a recorded mock with 4-letter last-name queries, it picked the intended player only 86/156 times, versus 156/156 for the default mode.
 - **Or** click **DRAFT** on a player's row in the *Best available* list (click the row itself to see the stat line first).
+- **Recommended pick:** the gold card above the list suggests a pick for *your* next turn, with up to two alternates and a **Draft** button for each when you're on the clock. Its reasons are written out, and the same players get a ★ tag in the list. *Order → Recommended* sorts the whole list this way. It weighs three things:
+  - **What your team needs (categories).** For each category it estimates how many head-to-head matchups one more unit of that category would swing against the other teams' projected totals. Categories where you're close to the pack count most, slightly behind counts a bit more than slightly ahead, and categories you've locked up or can't catch count less. Punted categories count zero. Early on every category counts about the same, which means best player available. *Your weakest categories* lists your bottom-ranked categories and the best available player for each, and flags a **long shot** when more of that category barely moves the standings any more.
+  - **Positions drafted early vs late.** For each position it estimates the best player you can still expect to get at your following pick, from who the other teams will likely take first (by ADP when loaded, otherwise by rank). *Value lost by waiting* shows that drop per position. A player whose position dries up before your next turn gets a bonus.
+  - **Roster fit.** Late in the draft, players who fill one of your open starting slots get a small bonus.
+
+  Before your turn it only suggests players likely (50%+) to still be there, and says how likely.
 - **Pick options:** record a traded pick (another team), a keeper (any pick number), or an out-of-order pick.
 - **Undo** removes the most recently entered pick. In the Data tab, **Remove pick** reopens any slot (the next entry fills it), and **Reset draft** needs a confirmation tick.
 - **Draft Board:** teams are columns and rounds are rows. Your column is yellow and the current pick has an orange outline.
@@ -230,6 +236,7 @@ start.py / start.command / start.bat   one-step setup + launch (local)
 app.py               Streamlit UI wiring
 ui.py                broadcast-style theme CSS and HTML pieces: score bug, pick crawl, roster, standings, board
 player_list.py       clickable "best available" list (custom component): team-color avatars, category heat chips, one-click Draft
+recommend.py         recommended pick: category need weights, value lost by waiting per position, roster fit (pure)
 .streamlit/config.toml  theme (near-black + broadcast red; Barlow / Big Shoulders Display)
 data/bundled/teams.json  NBA team colors and logo URLs (ESPN data via sportsdataverse)
 data_fetcher.py      every source -> one normalized DataFrame; name matching; snapshots
