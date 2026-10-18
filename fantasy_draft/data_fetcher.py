@@ -509,8 +509,42 @@ def parse_sleeper_players(data: dict) -> pd.DataFrame:
     return finalize_schema(df, "Sleeper player metadata")
 
 
+def parse_sleeper_draft_id(text: str) -> str | None:
+    """Draft id from a pasted Sleeper link (sleeper.com/draft/nba/<id>) or the bare id."""
+    m = re.search(r"draft/(?:nba/)?(\d{6,})", text or "") or re.fullmatch(r"\s*(\d{6,})\s*", text or "")
+    return m.group(1) if m else None
+
+
 def fetch_sleeper_draft(draft_id: str, timeout: float = 8) -> dict:
     return _get(SLEEPER_DRAFT_URL.format(draft_id=draft_id), timeout).json()
+
+
+def fetch_sleeper_user(username: str, timeout: float = 8) -> dict:
+    return _get(f"https://api.sleeper.app/v1/user/{username.strip()}", timeout).json() or {}
+
+
+def fetch_sleeper_league_users(league_id: str, timeout: float = 8) -> list[dict]:
+    data = _get(f"https://api.sleeper.app/v1/league/{league_id}/users", timeout).json()
+    return data if isinstance(data, list) else []
+
+
+def sleeper_draft_setup(draft: dict, user_id: str | None = None, league_users: list[dict] | None = None) -> dict:
+    """League settings from a Sleeper draft: teams, rounds, my slot (if my user is in the order), team names."""
+    cfg = draft.get("settings") or {}
+    teams = int(cfg.get("teams") or 0) or None
+    order = {str(u): int(slot) for u, slot in (draft.get("draft_order") or {}).items()}
+    names = {}
+    for u in league_users or []:
+        md = u.get("metadata") or {}
+        names[str(u.get("user_id"))] = (md.get("team_name") or u.get("display_name") or "").strip()
+    team_names = []
+    if teams and order:
+        by_slot = {slot: names.get(uid, "") for uid, slot in order.items()}
+        team_names = [by_slot.get(i, "") for i in range(1, teams + 1)]
+    return {"teams": teams, "rounds": int(cfg.get("rounds") or 0) or None,
+            "my_slot": order.get(str(user_id)) if user_id else None, "team_names": team_names,
+            "status": draft.get("status") or "", "type": draft.get("type") or "",
+            "has_order": bool(order)}
 
 
 def fetch_sleeper_draft_picks(draft_id: str, timeout: float = 4) -> list[dict]:
