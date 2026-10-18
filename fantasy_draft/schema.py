@@ -4,10 +4,14 @@ from __future__ import annotations
 
 # Per-game counting stats, plus makes/attempts that percentage categories derive from.
 STAT_COLS = ["GP", "MIN", "PTS", "REB", "AST", "3PM", "STL", "BLK", "TO", "FGM", "FGA", "FTM", "FTA"]
+# Optional per-game extras for points leagues: offensive rebounds, double-/triple-doubles and big-game
+# bonuses (share of games). TECH/FLAG (technical/flagrant fouls) exist for custom scoring, but no bundled
+# source has them per player. Missing extras count as 0 points.
+EXTRA_STATS = ["OREB", "DD", "TD", "PTS40", "PTS50", "AST15", "REB20", "TECH", "FLAG"]
 
 SCHEMA_COLUMNS = [
     "player_id", "name", "name_key", "team", "positions", "positions_source", "injury_status",
-    *STAT_COLS,
+    *STAT_COLS, *EXTRA_STATS,
     "adp_espn", "adp_sleeper", "espn_id", "sleeper_id", "source",
     "adp_market",  # optional extra: any other market rank (e.g. an expert-consensus CSV)
     "proj_notes",  # plain-English reasons a projection moved (bundled 2026-27 model only)

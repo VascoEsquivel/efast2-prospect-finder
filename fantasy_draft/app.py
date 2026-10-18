@@ -399,14 +399,25 @@ with st.sidebar:
     S["template"] = st.radio("Format", list(val.CATEGORY_TEMPLATES), index=list(val.CATEGORY_TEMPLATES).index(S["template"]),
                              horizontal=True)
     if S["template"] == "points":
-        st.caption("Fantasy points per stat (prefilled with ESPN's default H2H points scoring).")
-        w = pd.DataFrame({"stat": list(S["points_weights"]), "points": list(S["points_weights"].values())})
-        edited = st.data_editor(w, hide_index=True, disabled=["stat"], key="w_points", width="stretch")
-        S["points_weights"] = {r.stat: float(r.points) for r in edited.itertuples()}
-        if st.button("Reset to ESPN default"):
-            S["points_weights"] = dict(val.ESPN_DEFAULT_POINTS)
+        weights_now = {k: float(v) for k, v in S["points_weights"].items() if float(v)}
+        current = next((name for name, preset in val.POINTS_PRESETS.items() if preset == weights_now), "Custom")
+        presets = list(val.POINTS_PRESETS) + ["Custom"]
+        choice = st.selectbox("Scoring preset", presets, index=presets.index(current), key=f"w_preset_{current}",
+                              help="Pick your league's scoring, then adjust any value below (it becomes Custom).")
+        if choice != current and choice != "Custom":
+            S["points_weights"] = dict(val.POINTS_PRESETS[choice])
+            ss.pop("w_points", None)  # fresh table for the new preset
             save_settings(S)
             st.rerun()
+        labels = val.POINT_STAT_LABELS
+        w = pd.DataFrame({"stat": [labels[k] for k in labels], "points": [float(S["points_weights"].get(k, 0.0)) for k in labels]})
+        edited = st.data_editor(w, hide_index=True, disabled=["stat"], key="w_points", width="stretch", height=420,
+                                column_config={"stat": st.column_config.TextColumn("Stat", width=150),
+                                               "points": st.column_config.NumberColumn("Pts", width=56, format="%g")})
+        pts = pd.to_numeric(edited["points"], errors="coerce").fillna(0.0)
+        S["points_weights"] = {k: float(v) for k, v in zip(labels, pts) if v}
+        st.caption("Double-/triple-doubles and the big-game bonuses are projected per game from real game logs. "
+                   "A triple-double also counts as a double-double, and a 50-point game earns both points bonuses.")
     else:
         tmpl = val.CATEGORY_TEMPLATES[S["template"]]
         cats = [c for c in S["categories"] if c in tmpl] or list(tmpl)
@@ -677,7 +688,7 @@ with tab_room:
                 st.html(ui.recommend_html(rec, N, team_name(me)))
                 if plan.on_clock and rec.top:
                     for i, (col, t) in enumerate(zip(st.columns(len(rec.top)), rec.top)):
-                        col.button(f"Draft {ui.split_name(t['name'])[1] or t['name']}", key=f"rec_draft_{i}",
+                        col.button(f"Draft {ui.short_label(t['name'])}", key=f"rec_draft_{i}",
                                    type="primary" if i == 0 else "secondary", on_click=do_pick, args=(t["player_id"],))
         with st.container(key="listbar"):
             f1, f2 = st.columns([3, 1.3], vertical_alignment="bottom")
@@ -700,6 +711,8 @@ with tab_room:
         elif S["order"] == "Team fit" and fit_weights:
             view = view.sort_values("fit", ascending=False)
         gone = val.likely_gone(view["adp"], next_mine)
+        if rec is not None and len(rec.scores):  # availability model: works without ADP too
+            gone = gone.to_numpy() | view["player_id"].map(rec.scores["gone_by_next"]).fillna(False).astype(bool).to_numpy()
         player_list.render(player_list.payload(
             view, gone=gone, cats=cats, punts=vs.punts, is_points=vs.is_points, fit_on=bool(fit_weights),
             next_pick=next_mine, projected=meta.kind == "projections", can_draft=cur is not None,
@@ -716,6 +729,10 @@ with tab_room:
                            f"{'' if info.get('converged') else ', not converged'}; lg FG% {lr.get('FG%', 0):.3f}, "
                            f"FT% {lr.get('FT%', 0):.3f}). ≈ = approximate positions; struck-out categories are punted.")
             else:
+                missing = [val.POINT_STAT_LABELS.get(k, k) for k, w in S["points_weights"].items()
+                           if w and (k not in players or players[k].notna().sum() == 0)]
+                if missing:
+                    st.caption("Not in this data source, so worth 0 points here: " + ", ".join(missing) + ".")
                 st.caption(f"Replacement level: {info.get('replacement_fp', 0):.1f} FP ({vs.stat_mode.replace('_', ' ')}). "
                            "Chips show the per-game stat line; val = FP over replacement.")
             if fit_weights:

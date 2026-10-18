@@ -64,8 +64,11 @@ def assign_roster(players: list[dict], starters: list[str] = DEFAULT_STARTERS) -
     Each player dict needs 'positions' and optionally 'value'.
     """
     n = len(players)
-    if n > 20:
-        raise ValueError("roster matcher supports at most 20 players")
+    if n > 20:  # exact search is exponential; past the 20 most valuable, everyone is bench anyway
+        order = sorted(range(n), key=lambda j: (-float(players[j].get("value") or 0.0), j))
+        top = assign_roster([players[j] for j in order[:20]], starters)
+        rest = [players[j] for j in order[20:]]
+        return Assignment(starters=top.starters, bench=top.bench + rest)
     values = [float(p.get("value") or 0.0) for p in players]
     restricted = [s for s in starters if s not in FLEX_SLOTS]
     n_util = sum(1 for s in starters if s == "UTIL")

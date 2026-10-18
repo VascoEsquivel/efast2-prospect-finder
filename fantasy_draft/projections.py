@@ -407,6 +407,7 @@ def _per_game(g: pd.DataFrame, lg: dict, params: ProjectionParams) -> pd.DataFra
     out["FTM"] = fta * g["PFT"]
     out["PTS"] = 2 * out["FGM"] + out["3PM"] + out["FTM"]
     out["REB"] = (g["OREB_100"] + g["DREB_100"]) * g["reb_factor"] * poss / 100
+    out["OREB"] = g["OREB_100"] * g["reb_factor"] * poss / 100
     out["AST"] = g["AST_100"] * g["ast_factor"] * poss / 100
     out["STL"] = g["STL_100"] * poss / 100
     out["BLK"] = g["BLK_100"] * poss / 100
@@ -445,3 +446,45 @@ def notes(r) -> str:
     if not r["played_last_season"]:
         parts.append("missed 2025-26: built from earlier seasons")
     return "; ".join(parts)
+
+
+# ── Game-level events for points leagues (double-doubles, big-game bonuses) ───
+
+EVENT_STATS = {"PTS": "points", "REB": "rebounds", "AST": "assists", "STL": "steals", "BLK": "blocks"}
+EVENT_COLS = ["DD", "TD", "PTS40", "PTS50", "AST15", "REB20"]
+
+
+def event_rates(season_logs: list[pd.DataFrame], proj: pd.DataFrame,
+                weights: tuple[float, ...] = (6.0, 3.0, 1.0), rescale: float = 0.5) -> pd.DataFrame:
+    """Per-game rates of double-doubles, triple-doubles, 40+/50+ point, 15+ assist and 20+ rebound games.
+
+    Each of a player's real games (game_logs(), most recent season first) is rescaled toward the
+    projection (`proj`: per-game PTS/REB/AST/STL/BLK, indexed by athlete_id) by (projected / past
+    average) ** rescale; the rate is the weighted share of rescaled games that clear the bar. So the
+    player's own game-to-game spread is kept, while a smaller projected role means fewer big games.
+    rescale = 0.5 backtested best on 2024-25 and 2025-26 (full rescaling squeezes the big games too
+    hard; none ignores role changes). Seasons count by their
+    weight, not by how many games they hold. A triple-double also counts as a double-double (as in
+    NBA stats). Players without NBA games get NaN.
+    """
+    frames = []
+    for i, logs in enumerate(season_logs[:len(weights)]):
+        g = logs[["athlete_id", *EVENT_STATS.values()]].copy()
+        g["w"] = weights[i] / g.groupby("athlete_id")["athlete_id"].transform("size")
+        frames.append(g)
+    games = pd.concat(frames, ignore_index=True)
+    games = games[games["athlete_id"].isin(proj.index)]
+    if games.empty:
+        return pd.DataFrame(np.nan, index=proj.index, columns=EVENT_COLS)
+    wsum = games.groupby("athlete_id")["w"].sum()
+    for stat, col in EVENT_STATS.items():
+        x = pd.to_numeric(games[col], errors="coerce").fillna(0.0)
+        hist = (x * games["w"]).groupby(games["athlete_id"]).sum() / wsum
+        ratio = (pd.to_numeric(proj[stat], errors="coerce").reindex(hist.index) / hist.replace(0, np.nan)).fillna(0.0)
+        games[stat] = x * games["athlete_id"].map(ratio ** rescale).fillna(0.0)
+    # Rescaled values are continuous: 9.5 stands in for "10 or more" (exact when nothing is rescaled).
+    tens = (games[list(EVENT_STATS)] >= 9.5).sum(axis=1)
+    hits = {"DD": tens >= 2, "TD": tens >= 3, "PTS40": games["PTS"] >= 39.5, "PTS50": games["PTS"] >= 49.5,
+            "AST15": games["AST"] >= 14.5, "REB20": games["REB"] >= 19.5}
+    out = pd.DataFrame({k: (v * games["w"]).groupby(games["athlete_id"]).sum() / wsum for k, v in hits.items()})
+    return out.reindex(proj.index)

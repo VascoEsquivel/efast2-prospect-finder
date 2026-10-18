@@ -95,7 +95,8 @@ def test_recommend_skips_players_without_stats_and_unlikely_to_last():
     assert "rookie" not in ids and "rookie" not in r.scores.index
     assert "a" not in ids  # the top two by rank go in the two picks before mine
     assert all(t["p_now"] >= 0.5 for t in r.top)
-    assert (r.scores.sort_values("order_key", ascending=False).index[:2] != ["a", "b"]).all()
+    assert r.scores.loc[["a", "b"], "gone_by_next"].all()  # list keeps them in place, flagged "gone by"
+    assert not r.scores.loc[["c", "d"], "gone_by_next"].any()
 
 
 def test_slot_bonus_only_when_a_starting_slot_is_open_for_him():
@@ -116,3 +117,59 @@ def test_points_mode_uses_value_and_has_no_category_gaps():
     r = rc.recommend(avail, plan, my_players=[], starters=STARTERS, cats=[], is_points=True)
     assert r.weights == {} and r.gaps == []
     assert r.top[0]["player_id"] == "a"
+
+
+# ── Regressions from the review ───────────────────────────────────────────────
+
+def test_csv_without_minutes_still_recommends_and_empty_pool_is_safe():
+    avail = players([("a", ["PG"], 3, 0, 0), ("b", ["C"], 0, 2, 2), ("c", ["PG"], 1, 0, 0)])
+    avail["MIN"] = np.nan  # a projections CSV with no minutes column
+    for plan in [rc.PickPlan(1, 8, True, 0, 6, 3), rc.PickPlan(3, 6, False, 2, 4, 3)]:
+        r = rc.recommend(avail, plan, my_players=[], starters=STARTERS, cats=CATS)
+        assert r.top, plan
+    empty = rc.recommend(avail.iloc[0:0], rc.PickPlan(1, 8, True, 0, 6, 3), my_players=[], starters=STARTERS, cats=CATS)
+    assert empty.top == [] and "order_key" in empty.scores
+    assert rc.availability(pd.Series(dtype=float), 3).empty
+
+
+def test_wait_cost_is_small_for_a_player_who_will_still_be_there():
+    df = players([("c1", ["C"], 0, 3, 3), ("c2", ["C"], 0, 1, 1)])
+    sure = rc.wait_costs(df["value"], df["positions"], pd.Series({"c1": 1.0, "c2": 1.0}))[0]
+    gone = rc.wait_costs(df["value"], df["positions"], pd.Series({"c1": 0.0, "c2": 1.0}))[0]
+    assert sure["c1"] == pytest.approx(0.0, abs=1e-9)  # he is still there next time: nothing lost
+    assert gone["c1"] == pytest.approx(4.0)             # 6 now vs the 2 left
+
+
+def test_back_to_back_turn_picks_measure_waiting_to_the_next_real_wait():
+    plan = rc.pick_plan(4, 4, 4, 4, {1, 2, 3})  # 4 teams: slot 4 picks 4, 5, 12, 13
+    assert (plan.now_pick, plan.following) == (4, 12)
+    assert plan.before_now == 0 and plan.before_following == 6  # picks 6-11 by the others
+
+
+def test_market_order_without_adp_ignores_my_punts():
+    df = players([("blk", ["C"], 0, 0, 6), ("pts", ["PG"], 3, 0, 0)])
+    df["rank"] = [2, 1]  # my punt-BLK ranking puts the shot blocker second
+    order = rc.market_order(df, CATS)
+    assert order["blk"] < order["pts"]  # other managers still value the blocks
+
+
+def test_roster_matcher_handles_more_than_twenty_players():
+    many = [{"player_id": f"p{i}", "positions": ["PG"], "value": float(i)} for i in range(22)]
+    a = roster.assign_roster(many, STARTERS)
+    assert len([p for _, p in a.starters if p]) + len(a.bench) == 22
+    avail = players([("c", ["C"], 0, 2, 0), ("g", ["PG"], 1, 0, 0)])
+    r = rc.recommend(avail, rc.PickPlan(30, None, True, 0, 0, 1), my_players=many, starters=STARTERS, cats=CATS)
+    assert r.top
+
+
+def test_gaps_only_name_players_likely_to_last_when_planning_ahead():
+    avail = players([("star", ["C"], 0, 0, 5), ("ok", ["C"], 0, 0, 2)] + [(f"x{i}", ["PG"], 4 - i * 0.1, 0, 0) for i in range(4)])
+    t = table({1: (5, 3.0, 2.0, -3.0), 2: (5, 0, 0, 2.0), 3: (5, 0, 0, 1.0), 4: (5, 0, 0, 1.5)})
+    avail["adp"] = [1.0, 40.0] + [2.0 + i for i in range(4)] + []
+    avail = pd.concat([avail, players([(f"f{i}", ["SF"], 0.1, 0.1, 0.0) for i in range(30)])])
+    avail.loc[avail.index.str.startswith("f"), "adp"] = range(10, 40)
+    plan = rc.PickPlan(now_pick=24, following=25, on_clock=False, before_now=6, before_following=6, my_picks_left=5)
+    r = rc.recommend(avail, plan, my_players=[{"player_id": "m", "positions": ["PG"], "value": 1}],
+                     starters=STARTERS, cats=CATS, table=t, me=1, n_rounds=13)
+    blk = next(g for g in r.gaps if g["cat"] == "BLK")
+    assert blk["player_id"] == "ok"  # the elite shot blocker goes in the 6 picks before mine

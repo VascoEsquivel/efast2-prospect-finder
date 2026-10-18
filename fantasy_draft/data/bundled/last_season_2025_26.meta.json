@@ -1,13 +1,13 @@
 {
   "source": "Last-season actuals 2025-26 (ESPN box scores via sportsdataverse)",
   "kind": "last_season_actuals",
-  "built_at": "2026-10-15T03:37:30+00:00",
+  "built_at": "2026-10-18T17:58:53+00:00",
   "box_score_dates": [
     "2025-10-21",
     "2026-06-13"
   ],
   "players": 582,
-  "on_2026_27_roster": 481,
+  "on_2026_27_roster": 483,
   "urls": {
     "box": "https://github.com/sportsdataverse/sportsdataverse-data/releases/download/espn_nba_player_boxscores/player_box_2026.parquet",
     "rosters": "https://github.com/sportsdataverse/sportsdataverse-data/releases/download/espn_nba_rosters/rosters_2027.parquet"

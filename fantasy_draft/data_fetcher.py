@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 import requests
 
-from schema import SCHEMA_COLUMNS, STAT_COLS, expand_positions, normalize_team
+from schema import EXTRA_STATS, SCHEMA_COLUMNS, STAT_COLS, expand_positions, normalize_team
 
 HERE = Path(__file__).resolve().parent
 DATA_DIR = HERE / "data"
@@ -122,7 +122,7 @@ def finalize_schema(df: pd.DataFrame, source: str, overrides: dict[str, str] | N
     out["positions_source"] = out["positions_source"].fillna("").astype(str)
     out["injury_status"] = out["injury_status"].fillna("").astype(str).replace({"None": "", "nan": ""})
     out["proj_notes"] = out["proj_notes"].fillna("").astype(str).replace({"None": "", "nan": ""})
-    for c in STAT_COLS + ["adp_espn", "adp_sleeper", "adp_market"]:
+    for c in STAT_COLS + EXTRA_STATS + ["adp_espn", "adp_sleeper", "adp_market"]:
         out[c] = pd.to_numeric(out[c], errors="coerce").astype(float)
     for c in ["espn_id", "sleeper_id"]:
         out[c] = pd.Series([_id_str(v) for v in out[c]], dtype=object)

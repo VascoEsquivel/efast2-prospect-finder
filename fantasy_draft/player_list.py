@@ -21,7 +21,7 @@ import ui
 ROW_CAP = 200          # rows sent to the browser; the search box still finds everyone
 POINT_STATS = ["PTS", "REB", "AST", "STL", "BLK", "TO"]
 LINE_STATS = [("PTS", "{:.1f}"), ("REB", "{:.1f}"), ("AST", "{:.1f}"), ("3PM", "{:.1f}"), ("STL", "{:.1f}"),
-              ("BLK", "{:.1f}"), ("TO", "{:.1f}"), ("MIN", "{:.1f}"), ("GP", "{:.0f}")]
+              ("BLK", "{:.1f}"), ("TO", "{:.1f}"), ("DD", "{:.2f}"), ("TD", "{:.2f}"), ("MIN", "{:.1f}"), ("GP", "{:.0f}")]
 
 CSS = r"""
 :host { display: block; }
@@ -82,6 +82,7 @@ CSS = r"""
 .mt { display: flex; align-items: center; gap: 5px; font: 600 12px/1 var(--cond); letter-spacing: .05em; color: var(--muted);
   white-space: nowrap; overflow: hidden; min-width: 0; }
 .mt .tmn { color: #C9CFDB; font-weight: 700; }
+.mt > span:not(.tag):not(.lg) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }  /* clip with "…", tags stay whole */
 .lg { position: relative; width: 15px; height: 15px; flex: none; background: linear-gradient(180deg, var(--tc), var(--tc0));
   clip-path: polygon(42% 0, 100% 0, 58% 100%, 0 100%); }
 .lg.ok { background: none; clip-path: none; }
