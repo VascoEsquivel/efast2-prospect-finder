@@ -119,7 +119,7 @@ The header always shows which source is loaded and when it was fetched. The **Da
 - **Live sync** (sidebar → *Sleeper live sync*):
   1. In Sleeper, open your draft room and copy its address (`https://sleeper.com/draft/nba/<long number>`). Paste it into **Sleeper draft link**.
   2. Optionally type your **Sleeper username**: the app then finds your draft slot and the other teams' names.
-  3. Click **Connect to Sleeper draft**. Before any picks it sets teams, rounds, your slot and team names from Sleeper, then turns **Live sync** on.
+  3. Click **Connect to Sleeper draft**. Before any picks it sets teams, rounds, your slot and team names from Sleeper. It always sets the starting lineup from the league's roster settings, then loads Sleeper's player list and ESPN's projections. The player list brings real positions, injury statuses, and Sleeper's default ranks, used as ADP when no ADP file is loaded. ESPN's projections cover the rookies. Finally it turns **Live sync** on.
   4. Keep this page open during the draft. Every 5 seconds it pulls the picks made in Sleeper; they appear on the board and drop out of *Best available*.
   - **Matching:** picks are matched to players by Sleeper ID when the Sleeper metadata has been refreshed (Data tab), otherwise by the name Sleeper sends with each pick.
   - **Conflicts:** Sleeper wins if it disagrees with a pick you typed. If the hosted app restarts mid-draft, reconnecting pulls every pick again.
@@ -190,6 +190,8 @@ Rebuild it with `python build_last_season.py`, which downloads from GitHub relea
 - **FG% / FT%:** the league rate is ΣFGM/ΣFGA over the pool. Impact = FGM − lg% × FGA, which is 0 for a league-average shooter, and that impact is what gets z-scored.
 - **Punts:** a punted category gets multiplier 0. It's still shown (column suffix `·p`) but adds nothing to Z_total.
 - **Stat mode:** *season totals* multiplies every counting stat and every make/attempt by GP.
+- **Set up for this league by default:** 14 teams, 15 rounds, picking 9th, lineup PG, SG, G, SF, PF, F, C, UTIL ×2 (+6 bench), Sleeper points scoring, and *Per game + missed games*. *Connect to Sleeper draft* replaces these with whatever the Sleeper draft and league say.
+- **Stat mode → Per game + missed games** (default): per-game value for the games a player is projected to play, plus a waiver pickup at 80% of replacement level for the games they miss. It suits weekly head-to-head leagues where free agents can be streamed. In a simulated 14-team draft from slot 9, recommendations in this mode built a starting lineup worth 185.7 FP a game, against 178.9 using plain per-game value and 182.4 taking the best available. Per game and Season totals are still available.
 - **Points leagues:** pick a *Scoring preset* in the sidebar, then edit any value (it becomes *Custom*). Value = FP − the FP of the (N×R+1)th best player.
   - **ESPN default:** PTS 1, 3PM 1, FGM 2, FGA −1, FTM 1, FTA −1, REB 1, AST 2, STL 4, BLK 4, TO −2.
   - **Sleeper (your league):** PTS 0.5, 3PM 0.5, REB 1, offensive REB +0.5 extra, AST 1, STL 2, BLK 2, TO −1, double-double 1, triple-double 2, 40+ points 2, 50+ points 2 more, 15+ assists 1, 20+ rebounds 2, technical foul −2, flagrant foul −2.

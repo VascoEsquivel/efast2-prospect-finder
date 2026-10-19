@@ -84,3 +84,24 @@ def test_app_runs_the_sleeper_preset_and_says_what_it_cannot_count(runtime):
     preset.set_value("ESPN default").run()
     assert not at.exception
     assert json.loads((runtime / "settings.json").read_text())["points_weights"] == v.ESPN_DEFAULT_POINTS
+
+
+def test_games_mode_fills_missed_games_with_a_waiver_pickup():
+    rows = []
+    for i in range(40):  # a pool of healthy fake players, plus one star who misses half the season
+        rows.append({"name": f"Test Player {i:03d}", "GP": 82.0, "MIN": 30.0, "PTS": 30.0 - i * 0.5, "REB": 5.0,
+                     "AST": 3.0, "3PM": 1.0, "STL": 1.0, "BLK": 0.5, "TO": 2.0, "FGM": 8.0, "FGA": 16.0, "FTM": 3.0, "FTA": 4.0})
+    rows.append({**rows[0], "name": "Test Player 999", "GP": 41.0, "PTS": 34.0})
+    df = pd.DataFrame(rows)
+    s = dict(n_teams=2, roster_size=10, template="points", points_weights=tuple(v.SLEEPER_LEAGUE_POINTS.items()))
+    per_game, info = v.valuate(df, v.ValuationSettings(**s))
+    games, _ = v.valuate(df, v.ValuationSettings(**s, stat_mode="games"))
+    star = lambda d: d[d["name"] == "Test Player 999"].iloc[0]  # noqa: E731
+    repl = info["replacement_fp"]
+    expected = star(per_game)["FP"] * 0.5 + 0.8 * repl * 0.5 - repl
+    assert star(games)["value"] == pytest.approx(expected)
+    assert star(games)["rank"] > star(per_game)["rank"]  # missing half the season costs him
+    healthy = games[games["name"] == "Test Player 000"].iloc[0]
+    assert healthy["value"] == pytest.approx(per_game[per_game["name"] == "Test Player 000"].iloc[0]["FP_value"])
+    cats, _ = v.valuate(df, v.ValuationSettings(n_teams=2, roster_size=10, stat_mode="games"))
+    assert cats["value"].notna().all()

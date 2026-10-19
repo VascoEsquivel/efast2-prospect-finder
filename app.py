@@ -34,20 +34,24 @@ SOURCES = {
     "nba_api": "Last season 2025-26 actuals (nba_api refresh)",
     "synthetic": "Synthetic test data (fake players)",
 }
+MODE_LABEL = {"games": "per game", "per_game": "per game", "season": "season"}
 ADP_TARGET_LABELS = {"adp_sleeper": "Sleeper ADP", "adp_espn": "ESPN ADP", "adp_market": "Other / market rank"}
+# The league this app is set up for (Sleeper, 14 teams, 15 rounds, picking 9th). Connect to Sleeper overrides it.
+MY_LEAGUE = {"n_teams": 14, "n_rounds": 15, "my_slot": 9}
+OLD_DEFAULT_STARTERS = "PG, SG, SF, PF, C, G, F, UTIL x3"
 DEFAULT_SETTINGS = {
-    "settings_version": 2,
+    "settings_version": 3,
     "source": "proj_2027",
     "adp_compare": "auto",
-    "template": "9-cat",
+    "template": "points",
     "categories": list(val.CATEGORIES),
     "punts": [],
-    "stat_mode": "per_game",
+    "stat_mode": "games",
     "min_gp": 10,
     "steal_min_gap": 3.0,
     "steal_pct": 0.15,
-    "points_weights": dict(val.ESPN_DEFAULT_POINTS),
-    "starters": "PG, SG, SF, PF, C, G, F, UTIL x3",
+    "points_weights": dict(val.SLEEPER_LEAGUE_POINTS),
+    "starters": "PG, SG, G, SF, PF, F, C, UTIL x2",
     "use_sleeper_meta": True,
     "use_espn_meta": True,
     "use_ecr": False,
@@ -82,6 +86,17 @@ def load_settings() -> dict:
         if saved.get("source") == "last_season":
             saved["source"] = "proj_2027"
         saved["settings_version"] = 2
+    if saved and saved.get("settings_version", 1) < 3:
+        # v3 set the app up for the user's Sleeper league; only untouched old defaults are replaced.
+        if saved.get("starters", OLD_DEFAULT_STARTERS) == OLD_DEFAULT_STARTERS:
+            saved["starters"] = DEFAULT_SETTINGS["starters"]
+        if saved.get("stat_mode", "per_game") == "per_game":
+            saved["stat_mode"] = "games"
+        if saved.get("template", "9-cat") == "9-cat" and saved.get("points_weights", val.ESPN_DEFAULT_POINTS) == val.ESPN_DEFAULT_POINTS:
+            saved["template"] = "points"
+            saved["points_weights"] = dict(val.SLEEPER_LEAGUE_POINTS)
+        saved["settings_version"] = 3
+        ss.moved_to_my_league = True  # boot() also moves an unused old-default draft to the league size
     return {**DEFAULT_SETTINGS, **{k: v for k, v in saved.items() if k in DEFAULT_SETTINGS}}
 
 
@@ -120,18 +135,24 @@ def boot() -> None:
     if ss.get("booted"):
         return
     ss.settings = load_settings()
-    ss.saved_settings_json = json.dumps(ss.settings, sort_keys=True)
+    # After a settings migration, force one save so the file is updated and the move happens once.
+    ss.saved_settings_json = None if ss.get("moved_to_my_league") else json.dumps(ss.settings, sort_keys=True)
     ss.pending_resume = None
     try:
         saved = draft.load_state(STATE_PATH)
     except draft.DraftError as exc:
         flash("error", str(exc))
         saved = None
+    if ss.get("moved_to_my_league") and saved is not None and not saved.picks and \
+            (saved.settings.n_teams, saved.settings.n_rounds, saved.settings.my_slot) == (12, 13, 1):
+        saved = None  # never-used draft with the old 12-team defaults: start from the league settings
     if saved is not None and saved.picks:
         ss.pending_resume = saved
         ss.draft = draft.new_state(draft.DraftSettings(**asdict(saved.settings)))
     else:
-        ss.draft = saved or draft.new_state()
+        ss.draft = saved or draft.new_state(draft.DraftSettings(**MY_LEAGUE))
+        if saved is None and ss.get("moved_to_my_league"):
+            persist()
     ss.booted = True
 
 
@@ -233,7 +254,7 @@ def assemble(sig: str, s_json: str):
         reports.append(rep)
 
     if s["use_sleeper_meta"]:
-        add("sleeper_players", "Sleeper metadata", live_metadata=True)
+        add("sleeper_players", "Sleeper metadata", adp_target="adp_sleeper", live_metadata=True)
     if s["use_espn_meta"] and s["source"] != "espn":
         add("espn_projections", "ESPN (ADP, positions)", adp_target="adp_espn", live_metadata=True)
     adp_path = dfm.UPLOAD_DIR / "adp.csv"
@@ -434,9 +455,12 @@ with st.sidebar:
         S["categories"] = st.multiselect("Categories", tmpl, cats)
         with st.container(key="sb_punts"):  # keyed container (not widget) so punted chips can be styled apart
             S["punts"] = st.multiselect("Punt", S["categories"], [p for p in S["punts"] if p in S["categories"]])
-    S["stat_mode"] = st.radio("Stat mode", ["per_game", "season"], index=["per_game", "season"].index(S["stat_mode"]),
-                              format_func={"per_game": "Per game", "season": "Season totals (× GP)"}.get,
-                              horizontal=True)
+    modes = ["games", "per_game", "season"]
+    S["stat_mode"] = st.radio("Stat mode", modes, index=modes.index(S["stat_mode"]) if S["stat_mode"] in modes else 0,
+                              help="Per game + missed games: per-game value, with games a player is projected to miss "
+                                   "filled by a waiver pickup. Best for weekly head-to-head leagues where you can stream.",
+                              format_func={"games": "Per game + missed games", "per_game": "Per game",
+                                           "season": "Season totals (× GP)"}.get)
     with st.expander("Valuation options"):
         S["min_gp"] = st.number_input("Min GP to enter the replacement pool", 0, 82, int(S["min_gp"]))
         S["steal_min_gap"] = st.number_input("STEAL/REACH minimum gap (picks)", 0.0, 50.0, float(S["steal_min_gap"]), 1.0)
@@ -488,41 +512,56 @@ with st.sidebar:
     S["sleeper_username"] = st.text_input("Your Sleeper username (optional)", S["sleeper_username"],
                                           help="Lets the app find your draft slot and the other teams' names.").strip()
     if draft_id and st.button("Connect to Sleeper draft", type="primary", width="stretch"):
-        try:
-            d = dfm.fetch_sleeper_draft(draft_id)
-            user_id, league_users = None, []
-            if S["sleeper_username"]:
-                user_id = (dfm.fetch_sleeper_user(S["sleeper_username"]) or {}).get("user_id")
-                if not user_id:
-                    flash("error", f"Sleeper has no user named '{S['sleeper_username']}'. Set your draft slot by hand.")
-            if d.get("league_id"):
-                try:
-                    league_users = dfm.fetch_sleeper_league_users(str(d["league_id"]))
-                except Exception:  # noqa: BLE001 - names are a nice-to-have
-                    league_users = []
-            setup = dfm.sleeper_draft_setup(d, user_id, league_users)
-            notes = []
-            if has_picks:
-                notes.append("league settings kept (picks already entered)")
-            else:
-                state.settings.n_teams = setup["teams"] or state.settings.n_teams
-                state.settings.n_rounds = setup["rounds"] or state.settings.n_rounds
-                if setup["my_slot"]:
-                    state.settings.my_slot = setup["my_slot"]
-                    notes.append(f"you pick from slot {setup['my_slot']}")
-                elif not setup["has_order"]:
-                    notes.append("draft order not set in Sleeper yet: connect again once it is, or set your slot above")
+        with st.spinner("Connecting to Sleeper: draft, league, players, ESPN rookie projections…"):
+            try:
+                d = dfm.fetch_sleeper_draft(draft_id)
+                user_id, league_users = None, []
+                if S["sleeper_username"]:
+                    user_id = (dfm.fetch_sleeper_user(S["sleeper_username"]) or {}).get("user_id")
+                    if not user_id:
+                        flash("error", f"Sleeper has no user named '{S['sleeper_username']}'. Set your draft slot by hand.")
+                league = {}
+                if d.get("league_id"):
+                    try:
+                        league_users = dfm.fetch_sleeper_league_users(str(d["league_id"]))
+                        league = dfm.fetch_sleeper_league(str(d["league_id"]))
+                    except Exception:  # noqa: BLE001 - names and lineup are nice-to-haves
+                        pass
+                setup = dfm.sleeper_draft_setup(d, user_id, league_users, league)
+                notes = []
+                if has_picks:
+                    notes.append("league settings kept (picks already entered)")
                 else:
-                    notes.append("set your draft slot above")
-                if any(setup["team_names"]):
-                    state.settings.team_names = setup["team_names"]
-                persist()
-            S["sleeper_sync"] = True
-            save_settings(S)
-            flash("success", f"Connected: {state.settings.n_teams} teams × {state.settings.n_rounds} rounds "
-                             f"({setup['status'].replace('_', ' ') or 'status unknown'}); " + "; ".join(notes) + ".")
-        except Exception as exc:  # noqa: BLE001
-            flash("error", f"Could not reach that Sleeper draft: {exc}")
+                    state.settings.n_teams = setup["teams"] or state.settings.n_teams
+                    state.settings.n_rounds = setup["rounds"] or state.settings.n_rounds
+                    if setup["my_slot"]:
+                        state.settings.my_slot = setup["my_slot"]
+                        notes.append(f"you pick from slot {setup['my_slot']}")
+                    elif not setup["has_order"]:
+                        notes.append("draft order not set in Sleeper yet: connect again once it is, or set your slot above")
+                    else:
+                        notes.append("set your draft slot above")
+                    if any(setup["team_names"]):
+                        state.settings.team_names = setup["team_names"]
+                    persist()
+                if setup["starters"]:
+                    S["starters"] = setup["starters"]
+                    notes.append(f"lineup {setup['starters']}")
+                # Real positions, injuries and Sleeper's default ranks; ESPN's projections for the rookies.
+                for label, fetch in [("Sleeper players", dfm.fetch_sleeper_players),
+                                     ("ESPN projections", lambda: dfm.fetch_with_fallback("espn_projections", dfm.fetch_espn))]:
+                    try:
+                        _, m = fetch()
+                        notes.append(f"{label} {'cached' if m.from_cache else 'loaded'}")
+                    except Exception as exc:  # noqa: BLE001 - the draft sync works without them
+                        notes.append(f"{label} unavailable ({type(exc).__name__})")
+                st.cache_data.clear()
+                S["sleeper_sync"] = True
+                save_settings(S)
+                flash("success", f"Connected: {state.settings.n_teams} teams × {state.settings.n_rounds} rounds "
+                                 f"({setup['status'].replace('_', ' ') or 'status unknown'}); " + "; ".join(notes) + ".")
+            except Exception as exc:  # noqa: BLE001
+                flash("error", f"Could not reach that Sleeper draft: {exc}")
         st.rerun()
     S["sleeper_sync"] = st.toggle("Live sync on", S["sleeper_sync"], disabled=not draft_id)
 
@@ -781,7 +820,7 @@ with tab_room:
                            if w and (k not in players or players[k].notna().sum() == 0)]
                 if missing:
                     st.caption("Not in this data source, so worth 0 points here: " + ", ".join(missing) + ".")
-                st.caption(f"Replacement level: {info.get('replacement_fp', 0):.1f} FP ({vs.stat_mode.replace('_', ' ')}). "
+                st.caption(f"Replacement level: {info.get('replacement_fp', 0):.1f} FP ({MODE_LABEL[vs.stat_mode]}). "
                            "Chips show the per-game stat line; val = FP over replacement.")
             if fit_weights:
                 st.caption("Team-fit weights (0 = punted or locked up, 1.5 = competitive middle): "
@@ -795,7 +834,7 @@ with tab_room:
         if vs.is_points:
             fp = {t: float(valued.loc[ids, "FP"].sum()) if ids else 0.0 for t, ids in team_ids.items()}
             order_ = sorted(fp, key=fp.get, reverse=True)
-            st.html(ui.points_card_html(fp.get(me, 0.0), order_.index(me) + 1, N, vs.stat_mode.replace("_", " ")))
+            st.html(ui.points_card_html(fp.get(me, 0.0), order_.index(me) + 1, N, MODE_LABEL[vs.stat_mode]))
         elif table_t is not None:
             summary = roster.my_category_summary(table_t, me, cats, vs.punts)
             st.html(ui.standings_html([{

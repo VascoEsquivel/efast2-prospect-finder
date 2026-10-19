@@ -93,7 +93,7 @@ def apply_stat_mode(df: pd.DataFrame, mode: str) -> pd.DataFrame:
         gp = stats["GP"].fillna(0.0)
         for c in SCALED_STATS:
             stats[c] = stats[c] * gp
-    elif mode != "per_game":
+    elif mode not in ("per_game", "games"):  # "games": per-game stats; value adjusted for games missed
         raise ValueError(f"unknown stat mode {mode!r}")
     return stats
 
@@ -198,6 +198,26 @@ def points_values(stats: pd.DataFrame, weights: dict[str, float], pool_size: int
     return pd.DataFrame({"FP": fp, "FP_value": fp - replacement, "FP_replacement": replacement})
 
 
+SEASON_GAMES = 82
+STREAM_SHARE = 0.8  # a waiver pickup fills a missed game at 80% of replacement level
+
+
+def games_adjusted(out: pd.DataFrame, s: "ValuationSettings", info: dict) -> pd.Series:
+    """Weekly leagues: per-game value for the games a player plays, plus a waiver pickup for the rest.
+
+    Points: FP_adj = FP x share + 0.8 x replacement FP x (1 - share); value = FP_adj - replacement FP.
+    Categories: Z_adj = Z x share + Z of the replacement-level player x (1 - share).
+    share = projected GP / 82 (players without a GP projection count as healthy).
+    """
+    share = (pd.to_numeric(out["GP"], errors="coerce") / SEASON_GAMES).clip(0, 1).fillna(1.0)
+    if s.is_points:
+        repl = float(info.get("replacement_fp", 0.0))
+        return out["FP"] * share + STREAM_SHARE * repl * (1 - share) - repl
+    ranked = out["value"].sort_values(ascending=False).to_numpy()
+    z_repl = float(ranked[min(s.pool_size, len(ranked) - 1)]) if len(ranked) else 0.0
+    return out["value"] * share + z_repl * (1 - share)
+
+
 def custom_rank(values: pd.Series, names: pd.Series) -> pd.Series:
     """1 = best. Ties broken by name so ranks are stable across reruns."""
     order = pd.DataFrame({"v": values.fillna(-np.inf), "n": names.astype(str)}).sort_values(
@@ -255,6 +275,10 @@ def valuate(players: pd.DataFrame, s: ValuationSettings, adp_col: str | None = N
     with np.errstate(divide="ignore", invalid="ignore"):
         out["FG%"] = np.where(stats["FGA"] > 0, stats["FGM"] / stats["FGA"], np.nan)
         out["FT%"] = np.where(stats["FTA"] > 0, stats["FTM"] / stats["FTA"], np.nan)
+    if s.stat_mode == "games":
+        out["value"] = games_adjusted(out, s, info)
+        if s.is_points:
+            out["FP_value"] = out["value"]
     out["rank"] = custom_rank(out["value"], players["name"])
     if adp_col and adp_col in out:
         flags = adp_flags(out[adp_col], out["rank"], s.steal_min_gap, s.steal_pct)

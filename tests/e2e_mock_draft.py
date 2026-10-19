@@ -51,6 +51,8 @@ def main() -> None:
     (runtime / "draft_state.json").write_text(json.dumps({
         "schema_version": 1, "settings": {"n_teams": args.teams, "n_rounds": args.rounds, "my_slot": 1,
                                           "team_names": []}, "picks": [], "next_seq": 1}))
+    # Pin category scoring: the "intended player" check below ranks by 9-cat value.
+    (runtime / "settings.json").write_text(json.dumps({"settings_version": 3, "template": "9-cat"}))
     port = free_port()
     server = subprocess.Popen(
         [sys.executable, "-m", "streamlit", "run", "app.py", "--server.headless", "true", "--server.port", str(port),
