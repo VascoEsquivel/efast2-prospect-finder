@@ -34,6 +34,7 @@ CACHE_DIR = RUNTIME_DIR / "cache"
 UPLOAD_DIR = RAW_DIR / "uploads"
 BUNDLED_LAST_SEASON = DATA_DIR / "bundled" / "last_season_2025_26.parquet"
 BUNDLED_PROJECTIONS = DATA_DIR / "bundled" / "projections_2026_27.parquet"
+BUNDLED_ANALYST_ROOKIES = DATA_DIR / "bundled" / "analyst_rookies_2026_27.csv"
 OVERRIDES_PATH = DATA_DIR / "name_overrides.json"
 USER_AGENT = "Mozilla/5.0 (fantasy-draft-assistant; personal use)"
 
@@ -280,8 +281,85 @@ def load_last_season(path: Path = BUNDLED_LAST_SEASON) -> tuple[pd.DataFrame, So
 PROJECTIONS_LABEL = "2026-27 PROJECTIONS (bundled model)"
 
 
+ANALYST_LINE = ["GP", "MIN", "PTS", "REB", "AST", "STL", "BLK", "3PM", "TO", "FGA", "FG%", "FTA", "FT%"]
+
+
+def load_analyst_rookies(path: Path = BUNDLED_ANALYST_ROOKIES) -> pd.DataFrame:
+    """Published 2026-27 rookie projections (one row per player and source; blanks = not published)."""
+    try:
+        df = pd.read_csv(path)
+    except FileNotFoundError:
+        return pd.DataFrame(columns=["name", "source", "url", "as_of", *ANALYST_LINE])
+    for c in ANALYST_LINE:
+        df[c] = pd.to_numeric(df.get(c), errors="coerce")
+    df["name_key"] = [normalize_name(n) for n in df["name"]]
+    df["complete"] = df[ANALYST_LINE].notna().all(axis=1)
+    return df
+
+
+def _analyst_text(r) -> str:
+    bits = [f"{r[c]:g} {lab}" for c, lab in [("PTS", "pts"), ("REB", "reb"), ("AST", "ast"), ("STL", "stl"), ("BLK", "blk")]
+            if pd.notna(r[c])]
+    return f"{r['source']} {' · '.join(bits)}" if bits else ""
+
+
+def apply_analyst_rookies(df: pd.DataFrame, analysts: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Give stat-less rows (rookies) a published analyst line when one is complete; add every analyst's
+    numbers to the player's notes. Never fills from a partial line. Returns (frame, rows filled)."""
+    out = df.copy()
+    keys = out["name"].map(normalize_name)
+    filled = 0
+    for i in out.index[out["MIN"].isna()]:
+        rows = analysts[analysts["name_key"] == keys[i]]
+        if rows.empty:
+            continue
+        full = rows[rows["complete"]]
+        notes = []
+        if len(full):
+            r = full.iloc[0]
+            for c in ["GP", "MIN", "PTS", "REB", "AST", "STL", "BLK", "3PM", "TO", "FGA", "FTA"]:
+                out.at[i, c] = float(r[c])
+            out.at[i, "FGM"] = float(r["FGA"] * r["FG%"])
+            out.at[i, "FTM"] = float(r["FTA"] * r["FT%"])
+            notes.append(f"Rookie: {r['source']} projection ({r['as_of']}), not this app's model; "
+                         "double-doubles and bonuses not projected")
+            filled += 1
+        others = [t for t in (_analyst_text(r) for _, r in rows.iterrows()
+                              if not (len(full) and r["source"] == full.iloc[0]["source"])) if t]
+        if others:
+            notes.append("Analysts: " + "; ".join(others))
+        base = str(out.at[i, "proj_notes"] or "")
+        if len(full):
+            base = base.replace(": no NBA stats yet, not projected", "")
+        out.at[i, "proj_notes"] = "; ".join(n for n in [*notes, base] if n)
+    return out, filled
+
+
+def fill_missing_stats(base: pd.DataFrame, other: pd.DataFrame, label: str) -> tuple[pd.DataFrame, int]:
+    """Rows in `base` without stats (no minutes) take another source's projected line (matched by ESPN id,
+    then name). Used to project rookies from ESPN's projections. Returns (frame, rows filled)."""
+    out = base.copy()
+    have = other[other["MIN"].notna()]
+    by_id = {e: i for i, e in zip(have.index, have["espn_id"]) if e}
+    by_name = {k: i for i, k in zip(have.index, have["name_key"])}
+    cols = [c for c in STAT_COLS + EXTRA_STATS if c in have]
+    filled = 0
+    for i in out.index[out["MIN"].isna()]:
+        j = by_id.get(out.at[i, "espn_id"]) if out.at[i, "espn_id"] else None
+        j = j if j is not None else by_name.get(out.at[i, "name_key"])
+        if j is None:
+            continue
+        for c in cols:
+            out.at[i, c] = have.at[j, c]
+        base = str(out.at[i, "proj_notes"] or "").replace(": no NBA stats yet, not projected", "")
+        out.at[i, "proj_notes"] = "; ".join(x for x in [f"Rookie: {label}, not this app's model", base] if x)
+        filled += 1
+    return out, filled
+
+
 def load_projections(path: Path = BUNDLED_PROJECTIONS) -> tuple[pd.DataFrame, SourceMeta]:
-    """Bundled 2026-27 projections from build_projections.py (3 seasons of box scores + 2026-27 rosters)."""
+    """Bundled 2026-27 projections from build_projections.py (3 seasons of box scores + 2026-27 rosters),
+    with published analyst lines for rookies where one is complete."""
     raw = pd.read_parquet(path)
     try:
         info = json.loads(path.with_suffix(".meta.json").read_text())
@@ -290,14 +368,16 @@ def load_projections(path: Path = BUNDLED_PROJECTIONS) -> tuple[pd.DataFrame, So
     df = raw.rename(columns={"pos_group": "positions"}).copy()
     df["positions_source"] = "approx (ESPN G/F/C)"
     df["injury_status"] = np.where(df.get("on_2026_27_roster", True), "", "unsigned")
+    df, n_analyst = apply_analyst_rookies(df, load_analyst_rookies())
     out = finalize_schema(df, PROJECTIONS_LABEL)
     n_blank = int(out["MIN"].isna().sum())
     seasons = ", ".join(info.get("box_score_seasons", []))
     meta = SourceMeta(source=PROJECTIONS_LABEL, kind="projections", fetched_at=info.get("built_at", ""),
                       origin=f"ESPN box scores {seasons} + 2026-27 rosters via sportsdataverse", n_players=len(out),
                       warnings=["Positions are approximate (ESPN lists only G/F/C). Load Sleeper or ESPN for real eligibility.",
-                                f"{n_blank} rookies / players with no NBA games are listed without stats "
-                                "(not projected, so they rank last)."])
+                                f"{n_analyst} rookies use a published analyst projection (see their notes). "
+                                f"{n_blank} rookies / players with no NBA games have no full projection and rank last; "
+                                "fetching ESPN projections in the Data tab fills them in."])
     return out, meta
 
 

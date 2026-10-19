@@ -156,7 +156,12 @@ Be honest with yourself about what the backtest says:
 - **Every setting earned its place.** Each one was tuned on both seasons, and a change was kept only if it helped in both.
 
 Limits:
-- **Rookies aren't projected.** 2026 draftees and players with no NBA games are listed so you can enter picks, but with **no stats** (they rank last). The app never invents stats for real players. Use a projection CSV or ESPN if you want rookie projections.
+- **Rookies use published analyst projections, never invented ones.** The model can't project players without NBA games, so:
+  - `data/bundled/analyst_rookies_2026_27.csv` holds rookie projections published by analysts, one row per player and source, with the URL and date. A rookie gets stats only from a **complete** published line (every 9-cat stat plus shot attempts). The two complete lines that could be checked are 9cat.app's for Cameron Boozer and Darryn Peterson. Each adds up: points rebuilt from their shooting land within 0.1 of the published total.
+  - Partial lines appear in the player's notes as *Analysts: …* (Fadeaway World, FantasySP, Fantasy Blacksmith, NBASZN) and are not used for ranking.
+  - **ESPN fill:** after *Fetch ESPN projections + ADP* in the Data tab, every remaining rookie takes ESPN's projected line (matched by ESPN id). Notes say *Rookie: ESPN projection*.
+  - Analyst lines don't include double-doubles, triple-doubles or bonus games, so those count 0 for these rookies in points leagues.
+  - Anyone else with no line stays stat-less and ranks last.
 - **Rosters are as of the file date.** Moves after then aren't included. Sleeper/ESPN metadata can update a player's team label, but the projection still uses the bundled roster.
 - **Positions are approximate** (G/F/C), as with the last-season data.
 

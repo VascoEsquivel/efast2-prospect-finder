@@ -207,6 +207,15 @@ def assemble(sig: str, s_json: str):
         except Exception as exc:  # noqa: BLE001 - fall through to the next source
             errors.append(f"{SOURCES.get(source, source)}: {exc}")
     base = dfm.apply_overrides(base, overrides)
+    if meta.source == dfm.PROJECTIONS_LABEL:  # rookies the model can't project: use ESPN's line once fetched
+        try:
+            snap = dfm.load_snapshot("espn_projections")
+            if snap is not None:
+                base, n_espn = dfm.fill_missing_stats(base, dfm.apply_overrides(snap[0], overrides), "ESPN projection")
+                if n_espn:
+                    meta.warnings.append(f"{n_espn} more rookies use ESPN's projections (fetched {snap[1].fetched_at[:16]}).")
+        except Exception as exc:  # noqa: BLE001 - optional enrichment
+            errors.append(f"ESPN rookie fill: skipped ({type(exc).__name__}: {exc})")
     metas.append(meta)
 
     def add(key: str, label: str, **kw):
