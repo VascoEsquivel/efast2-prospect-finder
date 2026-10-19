@@ -140,3 +140,42 @@ def test_unrostered_regulars_become_free_agents(season):
     assert proj.at[missing, "team"] == "FA"
     assert "unsigned" in proj.at[missing, "proj_notes"]
     assert proj.at[missing, "MIN"] == pytest.approx(0.6 * base.at[missing, "MPG_base"])
+
+
+# ── Analyst projections for rookies ───────────────────────────────────────────
+
+def test_rookies_take_complete_analyst_lines_and_keep_partial_ones_as_notes():
+    import data_fetcher as dfm
+    analysts = pd.DataFrame([
+        {"name": "Test Rookie One", "source": "Site A", "url": "u", "as_of": "2026-10", "GP": 70, "MIN": 30, "PTS": 15,
+         "REB": 5, "AST": 3, "STL": 1, "BLK": 0.5, "3PM": 1, "TO": 2, "FGA": 12, "FG%": 0.5, "FTA": 3, "FT%": 0.8},
+        {"name": "Test Rookie One", "source": "Site B", "url": "u", "as_of": "2026-10", "PTS": 17, "REB": 6},
+        {"name": "Test Rookie Two", "source": "Site B", "url": "u", "as_of": "2026-10", "PTS": 9, "REB": 4},
+    ])
+    for c in dfm.ANALYST_LINE:
+        analysts[c] = pd.to_numeric(analysts.get(c), errors="coerce")
+    analysts["name_key"] = analysts["name"].map(dfm.normalize_name)
+    analysts["complete"] = analysts[dfm.ANALYST_LINE].notna().all(axis=1)
+    df = pd.DataFrame({"name": ["Test Rookie One", "Test Rookie Two", "Test Vet"], "MIN": [np.nan, np.nan, 25.0],
+                       "PTS": [np.nan, np.nan, 10.0], "proj_notes": ["2026 draft pick #3: no NBA stats yet, not projected",
+                                                                     "2026 draft pick #9: no NBA stats yet, not projected", ""]})
+    for c in ["GP", "REB", "AST", "STL", "BLK", "3PM", "TO", "FGA", "FGM", "FTA", "FTM"]:
+        df[c] = np.nan
+    out, n = dfm.apply_analyst_rookies(df, analysts)
+    assert n == 1
+    one, two = out.iloc[0], out.iloc[1]
+    assert one["PTS"] == 15 and one["FGM"] == pytest.approx(6.0) and one["FTM"] == pytest.approx(2.4)
+    assert "Site A projection" in one["proj_notes"] and "Site B 17 pts" in one["proj_notes"]
+    assert "no NBA stats yet" not in one["proj_notes"]
+    assert np.isnan(two["PTS"]) and "Site B 9 pts" in two["proj_notes"]  # partial line: a note, never stats
+    assert out.iloc[2]["PTS"] == 10 and out.iloc[2]["proj_notes"] == ""
+
+
+def test_bundled_analyst_lines_are_internally_consistent():
+    import data_fetcher as dfm
+    a = dfm.load_analyst_rookies()
+    full = a[a["complete"]]
+    assert len(full) >= 2
+    pts = 2 * full["FGA"] * full["FG%"] + full["3PM"] + full["FTA"] * full["FT%"]
+    assert np.allclose(pts, full["PTS"], atol=0.3)  # the published line adds up
+    assert a["url"].str.startswith("https://").all() and a["source"].notna().all()

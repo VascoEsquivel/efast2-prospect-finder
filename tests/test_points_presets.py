@@ -55,7 +55,7 @@ def test_sleeper_preset_scores_bonuses_and_season_totals_scale_them():
 
 def test_bundled_sources_carry_the_points_extras():
     proj, _ = dfm.load_projections()
-    projected = proj[proj["MIN"].notna()]
+    projected = proj[proj["MIN"].notna() & ~proj["proj_notes"].str.startswith("Rookie:")]  # analyst rookie lines lack DD
     assert projected["DD"].notna().all() and projected["OREB"].notna().all()
     jokic = proj[proj["name"] == "Nikola Jokic"].iloc[0]
     assert jokic["DD"] > 0.5 and jokic["TD"] > 0.1

@@ -2,6 +2,8 @@
 
 import json
 
+import pandas as pd
+
 import pytest
 from streamlit.testing.v1 import AppTest
 
@@ -82,3 +84,24 @@ def test_connect_button_sets_up_the_league_and_syncs_picks(runtime):
     assert settings["sleeper_sync"] and settings["sleeper_draft_id"] == DRAFT_ID
     # The live-sync fragment pulled Sleeper's pick #1 and matched it to the dataset by name.
     assert state.picks and state.picks[0].name == "Nikola Jokic" and not state.picks[0].unmatched
+
+
+def test_espn_snapshot_projects_the_rookies_the_model_cannot(runtime):
+    """With ESPN's projections fetched, stat-less rookies take ESPN's line (matched by ESPN id)."""
+    proj, _ = dfm.load_projections()
+    rookie = proj[proj["MIN"].isna() & proj["proj_notes"].str.contains("draft pick")].iloc[0]
+    espn = dfm.finalize_schema(pd.DataFrame([{
+        "name": rookie["name"], "espn_id": rookie["espn_id"], "team": rookie["team"], "positions": ["SF"],
+        "GP": 70, "MIN": 28.0, "PTS": 14.0, "REB": 5.0, "AST": 2.0, "3PM": 1.5, "STL": 0.9, "BLK": 0.4, "TO": 1.6,
+        "FGM": 5.2, "FGA": 11.5, "FTM": 2.1, "FTA": 2.7}]), "ESPN projections 2026-27")
+    dfm.save_snapshot("espn_projections", espn, dfm.SourceMeta(source="ESPN projections 2026-27", kind="projections",
+                                                               fetched_at="2026-10-19T12:00:00"))
+    filled, n = dfm.fill_missing_stats(proj, espn, "ESPN projection")
+    row = filled[filled["espn_id"] == rookie["espn_id"]].iloc[0]
+    assert n == 1 and row["PTS"] == 14.0 and row["proj_notes"].startswith("Rookie: ESPN projection")
+    at = AppTest.from_file(APP, default_timeout=60)
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    options = at.selectbox(key="w_search").options  # labels like "Name · TEAM · POS · #rank"
+    label = next(o for o in options if o.startswith(f"{rookie['name']} ·"))
+    assert options.index(label) < len(options) - 100  # ranked with real numbers, no longer at the bottom
