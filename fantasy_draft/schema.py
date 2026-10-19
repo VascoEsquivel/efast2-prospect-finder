@@ -16,7 +16,7 @@ SCHEMA_COLUMNS = [
     "adp_market",  # optional extra: any other market rank (e.g. an expert-consensus CSV)
     "proj_notes",  # plain-English reasons a projection moved (bundled 2026-27 model only)
 ]
-ADP_COLUMNS = {"ESPN ADP": "adp_espn", "Sleeper ADP": "adp_sleeper", "Market rank": "adp_market"}
+ADP_COLUMNS = {"ESPN ADP": "adp_espn", "Sleeper ADP / rank": "adp_sleeper", "Market rank": "adp_market"}
 
 FANTASY_POSITIONS = ["PG", "SG", "SF", "PF", "C"]
 

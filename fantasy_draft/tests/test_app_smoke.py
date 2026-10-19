@@ -21,9 +21,14 @@ def runtime(tmp_path, monkeypatch):
     return tmp_path
 
 
-def start(runtime, **settings) -> AppTest:
+def start(runtime, league: tuple[int, int, int] | None = None, **settings) -> AppTest:
+    """league=(teams, rounds, my slot) pins the draft size; settings are written to settings.json as given."""
     if settings:
         (runtime / "settings.json").write_text(json.dumps(settings))
+    if league:
+        n, r, slot = league
+        draft.save_state(draft.new_state(draft.DraftSettings(n_teams=n, n_rounds=r, my_slot=slot)),
+                         runtime / "draft_state.json")
     at = AppTest.from_file(APP, default_timeout=60)
     at.run()
     assert not at.exception, [e.value for e in at.exception]
@@ -49,7 +54,7 @@ def test_boots_offline_with_synthetic_data(runtime):
 
 
 def test_search_box_drafts_refresh_resume_loses_nothing(runtime):
-    at = start(runtime, source="synthetic")
+    at = start(runtime, league=(12, 13, 1), source="synthetic", settings_version=3)
     draft_via_search(at, 15)
     assert metrics(at)["Pick"] == "#16"
     saved = draft.load_state(runtime / "draft_state.json")
@@ -110,7 +115,7 @@ def test_old_default_source_migrates_once(runtime):
 
 
 def test_team_fit_unlocks_after_three_of_my_picks(runtime):
-    at = start(runtime, source="synthetic")
+    at = start(runtime, league=(12, 13, 1), source="synthetic", template="9-cat", settings_version=3)
     order = lambda: next(s for s in at.selectbox if s.label == "Order")  # noqa: E731
     draft_via_search(at, 24)  # slot 1 picks at #1 and #24
     assert "Team fit" not in order().options
@@ -127,3 +132,26 @@ def test_empty_espn_snapshot_does_not_crash_the_app(runtime):
     pd.DataFrame().to_parquet(dfm.CACHE_DIR / "espn_projections.parquet")  # left by a bad fetch
     at = start(runtime)  # default: last season + "use ESPN ADP" on
     assert metrics(at)["Pick"] == "#1"
+
+
+def test_new_install_is_set_up_for_my_sleeper_league(runtime):
+    at = start(runtime)
+    state = draft.load_state(runtime / "draft_state.json") if (runtime / "draft_state.json").exists() else None
+    assert metrics(at)["Pick"] == "#1"
+    assert any("14 teams" in str(getattr(e, "value", "")) for e in at.main) or state is None or state.settings.n_teams == 14
+    lineup = next(t for t in at.text_input if t.label == "Starting slots")
+    assert lineup.value == "PG, SG, G, SF, PF, F, C, UTIL x2"
+    assert next(s for s in at.selectbox if s.label == "Scoring preset").value == "Sleeper (your league)"
+
+
+def test_old_saved_defaults_move_to_my_league_once(runtime):
+    # Saved before v3: classic defaults everywhere, no picks yet.
+    at = start(runtime, league=(12, 13, 1), source="proj_2027", settings_version=2, template="9-cat",
+               starters="PG, SG, SF, PF, C, G, F, UTIL x3")
+    saved = json.loads((runtime / "settings.json").read_text())
+    assert saved["template"] == "points" and saved["starters"] == "PG, SG, G, SF, PF, F, C, UTIL x2"
+    teams = next(n for n in at.number_input if n.label == "Teams")
+    assert teams.value == 14 and next(n for n in at.number_input if n.label == "My draft slot").value == 9
+    # A choice made after the move is kept.
+    at2 = start(runtime, league=(10, 13, 3), source="proj_2027", settings_version=3, template="9-cat")
+    assert next(n for n in at2.number_input if n.label == "Teams").value == 10

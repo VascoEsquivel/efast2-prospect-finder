@@ -579,13 +579,16 @@ def parse_sleeper_players(data: dict) -> pd.DataFrame:
         if not isinstance(p, dict) or not (p.get("active") or p.get("team")):
             continue
         name = p.get("full_name") or " ".join(x for x in [p.get("first_name"), p.get("last_name")] if x)
+        rank = pd.to_numeric(p.get("search_rank"), errors="coerce")
         rows.append({
             "name": name, "sleeper_id": p.get("player_id") or sid, "espn_id": p.get("espn_id"),
             "team": p.get("team"), "positions": p.get("fantasy_positions") or p.get("position") or [],
             "positions_source": "sleeper", "injury_status": p.get("injury_status") or "",
+            # Sleeper's default draft-room rank: what leaguemates see first. Huge values mean "unranked".
+            "adp_sleeper": float(rank) if pd.notna(rank) and 0 < rank < 9999 else np.nan,
         })
     df = pd.DataFrame(rows, columns=["name", "sleeper_id", "espn_id", "team", "positions", "positions_source",
-                                     "injury_status"])
+                                     "injury_status", "adp_sleeper"])
     return finalize_schema(df, "Sleeper player metadata")
 
 
@@ -608,8 +611,25 @@ def fetch_sleeper_league_users(league_id: str, timeout: float = 8) -> list[dict]
     return data if isinstance(data, list) else []
 
 
-def sleeper_draft_setup(draft: dict, user_id: str | None = None, league_users: list[dict] | None = None) -> dict:
-    """League settings from a Sleeper draft: teams, rounds, my slot (if my user is in the order), team names."""
+def fetch_sleeper_league(league_id: str, timeout: float = 8) -> dict:
+    return _get(f"https://api.sleeper.app/v1/league/{league_id}", timeout).json() or {}
+
+
+def starters_from_roster_positions(positions: list[str]) -> str:
+    """Sleeper roster_positions (e.g. PG, SG, G, ..., UTIL, UTIL, BN x6, IR x2) -> 'PG, SG, G, ..., UTIL x2'."""
+    counts: dict[str, int] = {}
+    for p in positions or []:
+        slot = str(p).upper().strip()
+        if slot in {"BN", "IR", "TAXI", ""}:
+            continue
+        counts[slot] = counts.get(slot, 0) + 1
+    return ", ".join(f"{s} x{n}" if n > 1 else s for s, n in counts.items())
+
+
+def sleeper_draft_setup(draft: dict, user_id: str | None = None, league_users: list[dict] | None = None,
+                        league: dict | None = None) -> dict:
+    """League settings from a Sleeper draft (+ its league): teams, rounds, my slot (if my user is in the
+    order), team names and starting lineup slots."""
     cfg = draft.get("settings") or {}
     teams = int(cfg.get("teams") or 0) or None
     order = {str(u): int(slot) for u, slot in (draft.get("draft_order") or {}).items()}
@@ -621,7 +641,8 @@ def sleeper_draft_setup(draft: dict, user_id: str | None = None, league_users: l
     if teams and order:
         by_slot = {slot: names.get(uid, "") for uid, slot in order.items()}
         team_names = [by_slot.get(i, "") for i in range(1, teams + 1)]
-    return {"teams": teams, "rounds": int(cfg.get("rounds") or 0) or None,
+    starters = starters_from_roster_positions((league or {}).get("roster_positions") or [])
+    return {"teams": teams, "rounds": int(cfg.get("rounds") or 0) or None, "starters": starters or None,
             "my_slot": order.get(str(user_id)) if user_id else None, "team_names": team_names,
             "status": draft.get("status") or "", "type": draft.get("type") or "",
             "has_order": bool(order)}

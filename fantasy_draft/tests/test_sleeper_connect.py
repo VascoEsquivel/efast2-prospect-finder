@@ -33,6 +33,7 @@ def sleeper_draft(order=True):
             "draft_order": {"u1": 1, "u2": 2, "me": 7} if order else None}
 
 
+MY_ROSTER = ["PG", "SG", "G", "SF", "PF", "F", "C", "UTIL", "UTIL"] + ["BN"] * 6 + ["IR", "IR"]
 USERS = [{"user_id": "u1", "display_name": "alpha", "metadata": {"team_name": "Alpha Dogs"}},
          {"user_id": "u2", "display_name": "bravo", "metadata": {}},
          {"user_id": "me", "display_name": "you"}]
@@ -63,6 +64,12 @@ def runtime(tmp_path, monkeypatch):
     monkeypatch.setattr(dfm, "fetch_sleeper_draft", lambda draft_id, timeout=8: sleeper_draft())
     monkeypatch.setattr(dfm, "fetch_sleeper_user", lambda username, timeout=8: {"user_id": "me"})
     monkeypatch.setattr(dfm, "fetch_sleeper_league_users", lambda league_id, timeout=8: USERS)
+    monkeypatch.setattr(dfm, "fetch_sleeper_league", lambda league_id, timeout=8: {"roster_positions": MY_ROSTER})
+
+    def no_network(*a, **k):
+        raise ConnectionError("offline test")
+    monkeypatch.setattr(dfm, "fetch_sleeper_players", no_network)
+    monkeypatch.setattr(dfm, "fetch_espn", no_network)
     picks = [{"pick_no": 1, "draft_slot": 1, "player_id": "4046",
               "metadata": {"first_name": "Nikola", "last_name": "Jokic", "position": "C", "team": "DEN"}}]
     monkeypatch.setattr(dfm, "fetch_sleeper_draft_picks", lambda draft_id, timeout=4: picks)
@@ -82,6 +89,7 @@ def test_connect_button_sets_up_the_league_and_syncs_picks(runtime):
     assert (state.settings.n_teams, state.settings.n_rounds, state.settings.my_slot) == (10, 14, 7)
     assert state.settings.team_names[0] == "Alpha Dogs"
     assert settings["sleeper_sync"] and settings["sleeper_draft_id"] == DRAFT_ID
+    assert settings["starters"] == "PG, SG, G, SF, PF, F, C, UTIL x2"  # from the league's roster settings
     # The live-sync fragment pulled Sleeper's pick #1 and matched it to the dataset by name.
     assert state.picks and state.picks[0].name == "Nikola Jokic" and not state.picks[0].unmatched
 
@@ -105,3 +113,20 @@ def test_espn_snapshot_projects_the_rookies_the_model_cannot(runtime):
     options = at.selectbox(key="w_search").options  # labels like "Name · TEAM · POS · #rank"
     label = next(o for o in options if o.startswith(f"{rookie['name']} ·"))
     assert options.index(label) < len(options) - 100  # ranked with real numbers, no longer at the bottom
+
+
+def test_starters_from_sleeper_roster_positions():
+    assert dfm.starters_from_roster_positions(MY_ROSTER) == "PG, SG, G, SF, PF, F, C, UTIL x2"
+    assert dfm.starters_from_roster_positions([]) == ""
+    import roster
+    assert len(roster.parse_starters(dfm.starters_from_roster_positions(MY_ROSTER))) == 9
+
+
+def test_sleeper_rank_becomes_adp_and_unranked_is_blank():
+    data = {"1": {"player_id": "1", "full_name": "Test Player 001", "team": "BOS", "fantasy_positions": ["PF", "C"],
+                  "active": True, "search_rank": 12, "injury_status": "Questionable"},
+            "2": {"player_id": "2", "full_name": "Test Player 002", "team": "NYK", "fantasy_positions": ["PG"],
+                  "active": True, "search_rank": 9999999}}
+    df = dfm.parse_sleeper_players(data).set_index("name")
+    assert df.at["Test Player 001", "adp_sleeper"] == 12 and pd.isna(df.at["Test Player 002", "adp_sleeper"])
+    assert df.at["Test Player 001", "positions"] == ["PF", "C"] and df.at["Test Player 001", "injury_status"] == "Questionable"
