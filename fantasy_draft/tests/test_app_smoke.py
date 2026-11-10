@@ -155,3 +155,9 @@ def test_old_saved_defaults_move_to_my_league_once(runtime):
     # A choice made after the move is kept.
     at2 = start(runtime, league=(10, 13, 3), source="proj_2027", settings_version=3, template="9-cat")
     assert next(n for n in at2.number_input if n.label == "Teams").value == 10
+
+
+def test_a_list_order_that_is_unavailable_right_now_is_kept(runtime):
+    # Team fit needs 3 of my picks; before that the list shows My rank but must not forget the choice.
+    start(runtime, source="synthetic", template="9-cat", order="Team fit", settings_version=3, search_mode="fuzzy")
+    assert json.loads((runtime / "settings.json").read_text())["order"] == "Team fit"
