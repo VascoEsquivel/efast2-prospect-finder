@@ -52,6 +52,7 @@ class SourceMeta:
     n_players: int = 0
     from_cache: bool = False
     warnings: list[str] = field(default_factory=list)
+    fallback_from: str = ""     # set when the chosen source failed and this one is shown instead
 
 
 def _now() -> str:
@@ -557,7 +558,11 @@ SLEEPER_PLAYERS_URL = "https://api.sleeper.app/v1/players/nba"
 SLEEPER_DRAFT_URL = "https://api.sleeper.app/v1/draft/{draft_id}"
 
 
-def fetch_sleeper_players(max_age_hours: float = 24, force: bool = False, timeout: float = 30) -> tuple[pd.DataFrame, SourceMeta]:
+SLEEPER_MAX_AGE_HOURS = 24  # Sleeper asks callers to fetch the player dump at most once a day
+
+
+def fetch_sleeper_players(max_age_hours: float = SLEEPER_MAX_AGE_HOURS, force: bool = False,
+                          timeout: float = 30) -> tuple[pd.DataFrame, SourceMeta]:
     """Sleeper's NBA player dump. Hit the network at most once per `max_age_hours`."""
     age = snapshot_age_hours("sleeper_players")
     if not force and age is not None and age < max_age_hours:

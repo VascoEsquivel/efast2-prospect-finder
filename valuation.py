@@ -31,6 +31,12 @@ SLEEPER_LEAGUE_POINTS = {
     "DD": 1.0, "TD": 2.0, "PTS40": 2.0, "PTS50": 2.0, "AST15": 1.0, "REB20": 2.0, "TECH": -2.0, "FLAG": -2.0,
 }
 POINTS_PRESETS = {"ESPN default": ESPN_DEFAULT_POINTS, "Sleeper (your league)": SLEEPER_LEAGUE_POINTS}
+
+
+def points_preset_name(weights: dict[str, float]) -> str:
+    """The preset these weights equal (zero weights ignored), else "Custom"."""
+    nonzero = {k: float(v) for k, v in weights.items() if float(v)}
+    return next((name for name, preset in POINTS_PRESETS.items() if preset == nonzero), "Custom")
 POINT_STAT_LABELS = {
     "PTS": "Points", "3PM": "3-pointers made", "FGM": "Field goals made", "FGA": "Field goals attempted",
     "FTM": "Free throws made", "FTA": "Free throws attempted", "REB": "Rebounds", "OREB": "Off. rebounds (extra)",

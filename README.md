@@ -253,6 +253,9 @@ The e2e script needs `pip install playwright && playwright install chromium`. It
 ```
 start.py / start.command / start.bat   one-step setup + launch (local)
 app.py               Streamlit UI wiring
+flow.py              the app's state machines (draft phase, clock, Sleeper sync, data source, boot, list order)
+settings_store.py    default settings, league defaults, versioned settings migrations
+AGENTS.md            guide for coding agents: module map, state machines, rules, commands
 ui.py                broadcast-style theme CSS and HTML pieces: score bug, pick crawl, roster, standings, board
 player_list.py       clickable "best available" list (custom component): team-color avatars, category heat chips, one-click Draft
 recommend.py         recommended pick: category need weights, value lost by waiting per position, roster fit (pure)

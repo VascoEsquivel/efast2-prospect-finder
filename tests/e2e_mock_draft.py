@@ -68,7 +68,7 @@ def main() -> None:
 
 def run(args, runtime: Path, port: int, total: int) -> None:
     players, _ = v.valuate(dfm.load_projections()[0], v.ValuationSettings(  # the app's default source
-        n_teams=args.teams, roster_size=args.rounds, min_gp=10))
+        n_teams=args.teams, roster_size=args.rounds, min_gp=10, stat_mode="games"))  # the app's default stat mode
     ranked = players.sort_values("rank")["name"].tolist()
     state = lambda: json.loads((runtime / "draft_state.json").read_text())  # noqa: E731
 
@@ -131,11 +131,15 @@ def run(args, runtime: Path, port: int, total: int) -> None:
         time.sleep(1.5)
         shot(page, "final_board")
         final_metric = metric.inner_text()
+        # The machine-readable state element (flow.page_state) must agree with what the page shows.
+        app_state = page.evaluate("() => Object.assign({}, document.querySelector('#app-state').dataset)")
         browser.close()
 
     picks = state()["picks"]
     per_team = Counter(x["team"] for x in picks)
     print(f"final pick metric: {final_metric}")
+    print(f"#app-state: phase={app_state.get('phase')} picks={app_state.get('picksMade')}/{app_state.get('picksTotal')}")
+    assert app_state.get("phase") == "complete" and app_state.get("picksMade") == str(total), app_state
     print(f"picks saved: {len(picks)} / {total}; unique players: {len({x['player_id'] for x in picks})}")
     print(f"picks per team: min {min(per_team.values())}, max {max(per_team.values())}")
     print(f"top search suggestion was the intended player: {top_hits}/{total}")

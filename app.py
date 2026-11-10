@@ -16,9 +16,11 @@ import streamlit as st
 
 import data_fetcher as dfm
 import draft
+import flow
 import player_list
 import recommend as rc
 import roster
+import settings_store as store
 import ui
 import valuation as val
 from schema import ADP_COLUMNS
@@ -36,36 +38,7 @@ SOURCES = {
 }
 MODE_LABEL = {"games": "per game", "per_game": "per game", "season": "season"}
 ADP_TARGET_LABELS = {"adp_sleeper": "Sleeper ADP", "adp_espn": "ESPN ADP", "adp_market": "Other / market rank"}
-# The league this app is set up for (Sleeper, 14 teams, 15 rounds, picking 9th). Connect to Sleeper overrides it.
-MY_LEAGUE = {"n_teams": 14, "n_rounds": 15, "my_slot": 9}
-OLD_DEFAULT_STARTERS = "PG, SG, SF, PF, C, G, F, UTIL x3"
-DEFAULT_SETTINGS = {
-    "settings_version": 3,
-    "source": "proj_2027",
-    "adp_compare": "auto",
-    "template": "points",
-    "categories": list(val.CATEGORIES),
-    "punts": [],
-    "stat_mode": "games",
-    "min_gp": 10,
-    "steal_min_gap": 3.0,
-    "steal_pct": 0.15,
-    "points_weights": dict(val.SLEEPER_LEAGUE_POINTS),
-    "starters": "PG, SG, G, SF, PF, F, C, UTIL x2",
-    "use_sleeper_meta": True,
-    "use_espn_meta": True,
-    "use_ecr": False,
-    "proj_mapping": None,
-    "proj_season_totals": False,
-    "adp_mapping": None,
-    "adp_target": "adp_sleeper",
-    "sleeper_draft_id": "",
-    "sleeper_username": "",
-    "sleeper_sync": False,
-    "order": "My rank",
-    "pos_filter": "All",
-    "search_mode": "contains",
-}
+DEFAULT_SETTINGS = store.DEFAULT_SETTINGS  # defaults, league and migrations: settings_store.py
 SEARCH_MODES = {"contains": "Best-ranked match first", "fuzzy": "Fuzzy (typo-tolerant)"}
 POS_FILTERS = ["All", "PG", "SG", "SF", "PF", "C", "G", "F"]
 
@@ -76,35 +49,8 @@ ss = st.session_state
 
 # ── Persistence helpers ───────────────────────────────────────────────────────
 
-def load_settings() -> dict:
-    try:
-        saved = json.loads(SETTINGS_PATH.read_text())
-    except (FileNotFoundError, json.JSONDecodeError):
-        saved = {}
-    if saved and saved.get("settings_version", 1) < 2:
-        # v2 made the bundled 2026-27 projections the default; move anyone still on the old default.
-        if saved.get("source") == "last_season":
-            saved["source"] = "proj_2027"
-        saved["settings_version"] = 2
-    if saved and saved.get("settings_version", 1) < 3:
-        # v3 set the app up for the user's Sleeper league; only untouched old defaults are replaced.
-        if saved.get("starters", OLD_DEFAULT_STARTERS) == OLD_DEFAULT_STARTERS:
-            saved["starters"] = DEFAULT_SETTINGS["starters"]
-        if saved.get("stat_mode", "per_game") == "per_game":
-            saved["stat_mode"] = "games"
-        if saved.get("template", "9-cat") == "9-cat" and saved.get("points_weights", val.ESPN_DEFAULT_POINTS) == val.ESPN_DEFAULT_POINTS:
-            saved["template"] = "points"
-            saved["points_weights"] = dict(val.SLEEPER_LEAGUE_POINTS)
-        saved["settings_version"] = 3
-        ss.moved_to_my_league = True  # boot() also moves an unused old-default draft to the league size
-    return {**DEFAULT_SETTINGS, **{k: v for k, v in saved.items() if k in DEFAULT_SETTINGS}}
-
-
 def save_settings(s: dict) -> None:
-    SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = SETTINGS_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(s, indent=1))
-    tmp.replace(SETTINGS_PATH)
+    store.save(SETTINGS_PATH, s)
     ss.saved_settings_json = json.dumps(s, sort_keys=True)
 
 
@@ -132,26 +78,28 @@ def mtime(path: Path) -> float:
 # ── Boot / resume ─────────────────────────────────────────────────────────────
 
 def boot() -> None:
+    """Once per browser session: settings (migrated) and the draft (flow.BootAction decides)."""
     if ss.get("booted"):
         return
-    ss.settings = load_settings()
-    # After a settings migration, force one save so the file is updated and the move happens once.
-    ss.saved_settings_json = None if ss.get("moved_to_my_league") else json.dumps(ss.settings, sort_keys=True)
+    loaded = store.load(SETTINGS_PATH)
+    ss.settings = loaded.settings
+    # A migrated settings file is written back once, by the save at the end of this run.
+    ss.saved_settings_json = None if loaded.changed else json.dumps(loaded.settings, sort_keys=True)
     ss.pending_resume = None
     try:
         saved = draft.load_state(STATE_PATH)
     except draft.DraftError as exc:
         flash("error", str(exc))
         saved = None
-    if ss.get("moved_to_my_league") and saved is not None and not saved.picks and \
-            (saved.settings.n_teams, saved.settings.n_rounds, saved.settings.my_slot) == (12, 13, 1):
-        saved = None  # never-used draft with the old 12-team defaults: start from the league settings
-    if saved is not None and saved.picks:
+    action = flow.boot_action(saved, loaded.moved_to_my_league, store.OLD_DEFAULT_LEAGUE)
+    if action is flow.BootAction.ASK_RESUME:
         ss.pending_resume = saved
         ss.draft = draft.new_state(draft.DraftSettings(**asdict(saved.settings)))
+    elif action is flow.BootAction.USE_SAVED:
+        ss.draft = saved
     else:
-        ss.draft = saved or draft.new_state(draft.DraftSettings(**MY_LEAGUE))
-        if saved is None and ss.get("moved_to_my_league"):
+        ss.draft = draft.new_state(draft.DraftSettings(**store.MY_LEAGUE))
+        if loaded.moved_to_my_league:
             persist()
     ss.booted = True
 
@@ -223,6 +171,7 @@ def assemble(sig: str, s_json: str):
         try:
             base, meta = _load_base(source, s)
             if source != s["source"]:
+                meta.fallback_from = SOURCES[s["source"]]
                 meta.warnings.insert(0, f"FALLBACK: {SOURCES[s['source']]} unavailable, showing {SOURCES[source]}")
             break
         except Exception as exc:  # noqa: BLE001 - fall through to the next source
@@ -393,7 +342,7 @@ if ss.pending_resume is not None:
 
 state: draft.DraftState = ss.draft
 S: dict = ss.settings
-has_picks = bool(state.picks)
+has_picks = flow.draft_phase(state) is not flow.DraftPhase.SETUP  # league size is locked once picking starts
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -430,8 +379,7 @@ with st.sidebar:
     S["template"] = st.radio("Format", list(val.CATEGORY_TEMPLATES), index=list(val.CATEGORY_TEMPLATES).index(S["template"]),
                              horizontal=True)
     if S["template"] == "points":
-        weights_now = {k: float(v) for k, v in S["points_weights"].items() if float(v)}
-        current = next((name for name, preset in val.POINTS_PRESETS.items() if preset == weights_now), "Custom")
+        current = val.points_preset_name(S["points_weights"])
         presets = list(val.POINTS_PRESETS) + ["Custom"]
         choice = st.selectbox("Scoring preset", presets, index=presets.index(current), key=f"w_preset_{current}",
                               help="Pick your league's scoring, then adjust any value below (it becomes Custom).")
@@ -506,8 +454,6 @@ with st.sidebar:
                "In Sleeper, open the draft room and copy its address.")
     link = st.text_input("Sleeper draft link", S["sleeper_draft_id"], placeholder="https://sleeper.com/draft/nba/…")
     draft_id = dfm.parse_sleeper_draft_id(link)
-    if link.strip() and not draft_id:
-        st.error("That doesn't look like a Sleeper draft link. It should contain /draft/nba/ followed by a long number.")
     S["sleeper_draft_id"] = draft_id or ""
     S["sleeper_username"] = st.text_input("Your Sleeper username (optional)", S["sleeper_username"],
                                           help="Lets the app find your draft slot and the other teams' names.").strip()
@@ -564,6 +510,12 @@ with st.sidebar:
                 flash("error", f"Could not reach that Sleeper draft: {exc}")
         st.rerun()
     S["sleeper_sync"] = st.toggle("Live sync on", S["sleeper_sync"], disabled=not draft_id)
+    sync = flow.sync_status(link, draft_id, S["sleeper_sync"], ss.get("sleeper_poll"))
+    if sync.state is flow.SyncState.INVALID_LINK:
+        st.error(f"{sync.label}: {sync.detail}")
+    else:
+        icon = {"live": "🟢", "warn": "⚠️"}.get(sync.tone, "⚪")
+        st.caption(f"{icon} **{sync.label}** · {sync.detail}")
 
     st.header("Draft backup")
     st.caption("Hosted apps (Streamlit Cloud) wipe files when they restart. Grab a backup now and then.")
@@ -612,33 +564,30 @@ for kind, text in ss.pop("flash", []):
         st.toast(text, icon="✅" if kind == "success" else "ℹ️")
 
 meta = metas[0]
-cur = state.current_pick()
+source = flow.source_status(meta)
 N = state.settings.n_teams
 me = state.settings.my_slot
 team_name = state.settings.team_name
-tags = []
-if "ACTUALS" in meta.source:
-    tags.append(("2025-26 actuals, not projections", "warn"))
-elif meta.kind == "projections":
-    tags.append(("2026-27 projections", "ok"))
-if meta.from_cache:
-    tags.append(("Cached snapshot", "warn"))
+clk = flow.clock(state, me)
+cur = clk.pick
+tags = list(source.tags)
 adp_label = next((k for k, v in ADP_COLUMNS.items() if v == adp_col), None)
 tags.append((f"ADP: {adp_label}" if adp_label else "No ADP loaded", ("ok" if adp_label else "") + " opt"))
-if S["sleeper_sync"] and S["sleeper_draft_id"]:
+if sync.state is flow.SyncState.LIVE:
     tags.append(("Sleeper live", "live"))
+elif sync.state is flow.SyncState.FAILING:
+    tags.append(("Sleeper sync failing", "warn"))
 tags.append((f"{N} teams · {state.settings.n_rounds} rds · slot {me}", "opt"))
 with st.container(key="masthead"):
     st.html(ui.header_html(tags))
     st.caption(f"**{meta.source}** · updated {ui.nice_time(meta.fetched_at)}"
                + (" · ⚠ cached snapshot" if meta.from_cache else ""))
-for w in meta.warnings:
-    if w.startswith("FALLBACK"):
-        st.error(w)
+if source.fallback_from:
+    st.error(f"FALLBACK: {source.fallback_from} unavailable, showing {source.label}")
 
 available = players[~players["player_id"].isin(drafted)].sort_values("rank")
-clock_team = draft.team_for_pick(cur, N) if cur else None
-next_mine = state.next_pick_for_team(me) if cur else None
+clock_team = clk.team
+next_mine = clk.next_mine
 clock_label = ("YOU" if clock_team == me else team_name(clock_team)) if clock_team else "—"
 clock_color = ui.fantasy_color(clock_team, me) if clock_team else ui.NEUTRAL
 st.html(ui.clock_style_html(clock_color, ui.monogram(team_name(clock_team), clock_team) if clock_team else ""))
@@ -646,31 +595,17 @@ st.html(ui.clock_style_html(clock_color, ui.monogram(team_name(clock_team), cloc
 # ── Score bug: pick · on the clock · your next pick · undo ────────────────────
 with st.container(key="scorebug"):
     h1, h2, h3, h5 = st.columns([1.0, 1.75, 1.05, 0.56], vertical_alignment="center")
-    if cur is None:
-        h1.metric("Pick", "Done", "draft complete", delta_color="off", delta_arrow="off")
+    if clk.phase is flow.DraftPhase.COMPLETE:
+        h1.metric("Pick", "Done", clk.note(team_name), delta_color="off", delta_arrow="off")
         with h2.container(key="clock_done"):
             st.metric("On the clock", "—")
     else:
-        r = draft.round_of(cur, N)
-        h1.metric("Pick", f"#{cur}", f"Round {r} · pick {cur - (r - 1) * N}", delta_color="off", delta_arrow="off")
-        if state.reopened_slot():
-            clock_note = "reopened pick"
-        elif clock_team == me:
-            clock_note = "make your pick"
-        elif cur < state.total_picks:
-            up = draft.team_for_pick(cur + 1, N)
-            clock_note = "you're up next" if up == me else f"up next: {team_name(up)}"
-        else:
-            clock_note = "last pick"
-        with h2.container(key="clock_you" if clock_team == me else "clock_other"):
-            st.metric("On the clock", clock_label, clock_note, delta_color="off", delta_arrow="off")
-    soon = bool(next_mine and cur and next_mine - cur <= 3)
-    with h3.container(key="next_soon" if soon else "next_later"):
-        if next_mine and cur:
-            wait = next_mine - cur
-            note = "on the clock now" if wait == 0 else f"in {wait} pick{'s' if wait != 1 else ''}"
-        else:
-            note = None
+        h1.metric("Pick", f"#{cur}", f"Round {clk.round} · pick {clk.pick_in_round}", delta_color="off", delta_arrow="off")
+        with h2.container(key="clock_you" if clk.mine else "clock_other"):
+            st.metric("On the clock", clock_label, clk.note(team_name), delta_color="off", delta_arrow="off")
+    with h3.container(key="next_soon" if clk.mine_soon else "next_later"):
+        wait = clk.picks_until_mine
+        note = None if wait is None else ("on the clock now" if wait == 0 else f"in {wait} pick{'s' if wait != 1 else ''}")
         st.metric("Your next pick", f"#{next_mine}" if next_mine else "—", note, delta_color="off", delta_arrow="off")
     h5.button("↶ Undo", on_click=on_undo, disabled=not state.picks, width="stretch", help="Take back the last pick")
     if cur:
@@ -694,7 +629,7 @@ with st.container(key="draftbar"):
             key="w_search", on_change=on_search_pick, format_func=lambda pid: player_label(ss.player_by_id[pid]),
             filter_mode=S["search_mode"],
             placeholder=(f"Search players to draft for {clock_label}…" if clock_team else "Draft complete"),
-            disabled=cur is None)
+            disabled=not clk.can_draft)
     with s2.expander("Pick options"):
         st.selectbox("Team", [0, *range(1, N + 1)], key="w_team_override",
                      format_func=lambda t: "On the clock" if t == 0 else team_name(t))
@@ -732,8 +667,10 @@ if S["sleeper_sync"] and S["sleeper_draft_id"]:
         try:
             picks = dfm.fetch_sleeper_draft_picks(S["sleeper_draft_id"], timeout=4)
         except Exception as exc:  # noqa: BLE001
+            ss.sleeper_poll = flow.Poll(False, f"{datetime.now():%H:%M:%S}", error=str(exc))
             st.caption(f"⚠ Sleeper sync failed at {datetime.now():%H:%M:%S}: {str(exc)[:120]}. Manual entry still works.")
             return
+        ss.sleeper_poll = flow.Poll(True, f"{datetime.now():%H:%M:%S}", picks_seen=len(picks))
         applied, msgs = draft.apply_sleeper_picks(ss.draft, picks, resolve_sleeper, resolve_by_name)
         if applied:
             persist()
@@ -780,37 +717,39 @@ with tab_room:
         with st.container(key="listbar"):
             f1, f2 = st.columns([3, 1.3], vertical_alignment="bottom")
             S["pos_filter"] = f1.segmented_control("Position", POS_FILTERS, default=S["pos_filter"], key="w_pos") or "All"
-            orders = ["My rank"] + (["Recommended"] if rec is not None else []) + ["ADP"] + (["Team fit"] if fit_weights else [])
-            S["order"] = f2.selectbox("Order", orders, index=orders.index(S["order"]) if S["order"] in orders else 0,
-                                      help="Recommended = value + what your team needs + what won't last to your next "
-                                           "pick. Team fit unlocks after your 3rd pick.")
+            orders = flow.list_orders(rec is not None, bool(fit_weights))
+            shown = flow.effective_order(S["order"], orders)
+            order = f2.selectbox("Order", orders, index=orders.index(shown),
+                                 help="Recommended = value + what your team needs + what won't last to your next "
+                                      "pick. Team fit unlocks after your 3rd pick.")
+            S["order"] = flow.next_preferred_order(S["order"], shown, order)
         view = available.copy()
         if fit_weights:
             view["fit"] = roster.team_fit_scores(view.set_index("player_id"), fit_weights).to_numpy()
         if S["pos_filter"] != "All":
             want = {"G": {"PG", "SG"}, "F": {"SF", "PF"}}.get(S["pos_filter"], {S["pos_filter"]})
             view = view[view["positions"].map(lambda ps: bool(want & set(ps)))]
-        if S["order"] == "ADP":
+        if order == "ADP":
             view = view.sort_values("adp", na_position="last")
-        elif S["order"] == "Recommended" and rec is not None:
+        elif order == "Recommended" and rec is not None:
             view = view.assign(_rec=view["player_id"].map(rec.scores["order_key"])).sort_values(
                 "_rec", ascending=False, na_position="last").drop(columns="_rec")
-        elif S["order"] == "Team fit" and fit_weights:
+        elif order == "Team fit" and fit_weights:
             view = view.sort_values("fit", ascending=False)
         gone = val.likely_gone(view["adp"], next_mine)
         if rec is not None and len(rec.scores):  # availability model: works without ADP too
             gone = gone.to_numpy() | view["player_id"].map(rec.scores["gone_by_next"]).fillna(False).astype(bool).to_numpy()
         player_list.render(player_list.payload(
             view, gone=gone, cats=cats, punts=vs.punts, is_points=vs.is_points, fit_on=bool(fit_weights),
-            next_pick=next_mine, projected=meta.kind == "projections", can_draft=cur is not None,
-            clock=clock_label, clock_color=clock_color, order=S["order"], pos=S["pos_filter"],
-            sig=f"{S['pos_filter']}|{S['order']}|{vs.is_points}",
+            next_pick=next_mine, projected=source.kind is flow.SourceKind.PROJECTIONS, can_draft=clk.can_draft,
+            clock=clock_label, clock_color=clock_color, order=order, pos=S["pos_filter"],
+            sig=f"{S['pos_filter']}|{order}|{vs.is_points}",
             recs={t["player_id"]: i + 1 for i, t in enumerate(rec.top)} if rec is not None else None),
             key="plist", on_draft=on_list_draft)
         with st.container(key="listnote"):
             if not vs.is_points:
                 lr = info.get("league_rates", {})
-                st.caption(f"Click a player for the full stat line{' and why the projection moved' if meta.kind == 'projections' else ''}"
+                st.caption(f"Click a player for the full stat line{' and why the projection moved' if source.kind is flow.SourceKind.PROJECTIONS else ''}"
                            f" · DRAFT picks for the team on the clock (Pick options overrides it). "
                            f"Z = value over the top-{vs.pool_size} pool ({info.get('iterations')} iterations"
                            f"{'' if info.get('converged') else ', not converged'}; lg FG% {lr.get('FG%', 0):.3f}, "
@@ -886,7 +825,7 @@ with tab_data:
         run_fetch("ESPN", lambda: dfm.fetch_with_fallback("espn_projections", dfm.fetch_espn))
     if f2.button("Refresh Sleeper metadata"):
         age = dfm.snapshot_age_hours("sleeper_players")
-        if age is not None and age < 24:
+        if flow.snapshot_state(age, dfm.SLEEPER_MAX_AGE_HOURS) is flow.SnapshotState.FRESH:
             flash("info", f"Sleeper metadata is {age:.1f} h old; it refreshes at most once a day.")
             st.rerun()
         run_fetch("Sleeper", dfm.fetch_sleeper_players)
@@ -995,6 +934,10 @@ with tab_data:
     st.caption(f"Draft autosaves to {STATE_PATH} after every pick.")
 
 save_settings_if_changed(S)
+
+# Machine-readable state (flow.page_state) for tests, automation and agents: <div id="app-state" data-…>.
+st.html('<div id="app-state" hidden ' + " ".join(
+    f'data-{k}="{v}"' for k, v in flow.page_state(clk, sync, source, len(state.picks), state.total_picks).items()) + "></div>")
 
 # Headshot/logo load handling for the st.html blocks (initials until an image has really loaded).
 st.html(ui.img_script(), unsafe_allow_javascript=True)
